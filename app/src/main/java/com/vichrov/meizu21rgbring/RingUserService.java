@@ -5,6 +5,7 @@ public final class RingUserService extends IRingService.Stub {
     private RingController controller;
     private final AwBinderController awController = new AwBinderController();
     private final StockEffectsController stockController = new StockEffectsController();
+    private final MusicPreviewController musicPreview = new MusicPreviewController();
     private String initError;
 
     public RingUserService() {
@@ -23,6 +24,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setPureColor(int argb, int brightness) {
+        musicPreview.stop();
         stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setPureColor(argb, brightness);
@@ -30,6 +32,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setRainbow(int brightness) {
+        musicPreview.stop();
         stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setRainbow(brightness);
@@ -37,6 +40,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String startSoftwareRainbow(int brightness) {
+        musicPreview.stop();
         stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.startSoftwareRainbow(brightness);
@@ -50,6 +54,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setSingleLed(int index, int argb, int brightness) {
+        musicPreview.stop();
         stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setSingleLed(index, argb, brightness);
@@ -57,6 +62,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setAllLeds(int argb, int brightness) {
+        musicPreview.stop();
         stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setAllLeds(argb, brightness);
@@ -64,6 +70,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String startThreeColorSpin(int brightness) {
+        musicPreview.stop();
         stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.startThreeColorSpin(brightness);
@@ -78,35 +85,47 @@ public final class RingUserService extends IRingService.Stub {
     /*
      * v0.4 exposed these as aw_light Binder tests. Stock Flyme on the tested Meizu 21
      * rejects that reconstructed Binder ABI. Keep the UI/AIDL compatible, but route the
-     * buttons through the exact LightsManager path recovered from Settings 12.1.0.
+     * controls through mechanisms recovered directly from Settings 12.1.0.
      */
     @Override
     public String awDiagnostics() {
-        return "v0.5: aw Binder disabled; using stock Settings Lights API instead.\n\n"
-                + stockController.diagnostics();
+        return "v0.5: reconstructed aw Binder disabled. Using stock Flyme mechanisms.\n\n"
+                + stockController.diagnostics() + "\n\n" + musicPreview.diagnostics();
     }
 
     @Override
     public String startAwEffect(int effect, int argb, int strengthPercent, int amplitude, int progress) {
         awController.stop();
         if (controller != null) controller.off();
-        return "v0.5 STOCK PATH: "
+        stockController.stop();
+
+        // The existing Effect 38 button is repurposed as the exact Settings music-light
+        // preview trigger: tagged MUSIC/MEDIA playback with AudioAttributes flag 64.
+        if (effect == 38) {
+            return "v0.5 STOCK MUSIC PREVIEW: " + musicPreview.start();
+        }
+
+        musicPreview.stop();
+        return "v0.5 STOCK LIGHTS PATH: "
                 + stockController.setEffect(effect, argb, StockEffectsController.SETTINGS_PREVIEW_PRIORITY);
     }
 
     @Override
     public String stopAwEffect() {
-        return stockController.stop();
+        String a = musicPreview.stop();
+        String b = stockController.stop();
+        return a + "\n" + b;
     }
 
     @Override
     public String stockDiagnostics() {
-        return stockController.diagnostics();
+        return stockController.diagnostics() + "\n\n" + musicPreview.diagnostics();
     }
 
     @Override
     public String startStockEffect(int effect, int argb, int priority) {
         awController.stop();
+        musicPreview.stop();
         if (controller != null) controller.off();
         return stockController.setEffect(effect, argb, priority);
     }
@@ -120,7 +139,8 @@ public final class RingUserService extends IRingService.Stub {
     public String off() {
         String aw = awController.stop();
         String stock = stockController.stop();
-        if (controller == null) return "INIT ERROR: " + initError + "\n" + aw + "\n" + stock;
-        return controller.off() + "\n" + aw + "\n" + stock;
+        String music = musicPreview.stop();
+        if (controller == null) return "INIT ERROR: " + initError + "\n" + aw + "\n" + stock + "\n" + music;
+        return controller.off() + "\n" + aw + "\n" + stock + "\n" + music;
     }
 }
