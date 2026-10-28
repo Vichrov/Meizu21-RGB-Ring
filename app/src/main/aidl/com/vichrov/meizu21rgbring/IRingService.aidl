@@ -16,5 +16,9 @@ interface IRingService {
     String startAwEffect(int effect, int argb, int strengthPercent, int amplitude, int progress);
     String stopAwEffect();
 
+    String stockDiagnostics();
+    String startStockEffect(int effect, int argb, int priority);
+    String stopStockEffect();
+
     String off();
 }
