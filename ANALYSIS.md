@@ -1,8 +1,10 @@
-# Reverse engineering notes — Meizu Tools 12.0.15
+# Reverse engineering notes — Meizu 21 RGB Ring
+
+## Meizu Tools 12.0.15
 
 Source APK analysed: `com.meizu.flyme.toolbox` (Meizu Tools 12.0.15).
 
-## RGB ring architecture
+### RGB ring architecture
 
 The flashlight section controls the camera ring through Android's Lights framework plus Meizu/Flyme extensions rather than direct sysfs writes.
 
@@ -43,34 +45,73 @@ The following operations were physically verified:
 
 Although the Flyme framework exposes `LightState.Builder.setBrightness(int)`, hardware testing showed no visible difference between brightness `0` and `255` for the camera ring. Changing the ARGB alpha byte also did not provide usable brightness control.
 
-This means the vendor brightness property is accepted by the framework but ignored (or not mapped to LED current) for this specific light/driver path.
+Scaling each RGB channel does dim the ring, but below a device-dependent threshold the hue degrades toward a dim white. Therefore RGB scaling is only an approximation, not true low-level current control.
 
-v0.2 therefore tests a different mechanism: multiply each RGB channel by the requested brightness before submitting `EFFECT_ID_PURE`.
+## AW20072 / raw 16-pixel experiment
 
-For example, at roughly 25% brightness:
+Open Meizu 21-series hardware code describes an AW20072 backend with 16 logical RGB pixels and a 96-byte frame, where colour and brightness are encoded separately. This suggested that independent segment control is physically possible.
+
+However, hardware testing on stock Flyme with Shizuku UID 2000 showed that `/sys/class/leds` cannot be listed and `/sys/class/leds/aw20072_led/frame` is not accessible from the shell domain. Direct frame access therefore requires stronger privileges / a different SELinux domain and is not the preferred non-root path.
+
+## Reconstructed aw_light Binder experiment
+
+A vendor `aw_light` Binder API reconstructed from open Meizu/Lineage hardware code was tested in v0.4. Stock Flyme returned `DeadObjectException` on the small transactions. This strongly indicates that the reconstructed vendor Binder ABI does not match the stock Flyme implementation. v0.5 no longer relies on that Binder contract.
+
+## Stock Flyme Settings 12.1.0 findings
+
+The uploaded stock `Settings` APK contains the actual Meizu light-settings implementation. The important result is that normal previews use the same Android/Flyme `LightsManager` path that already works through Shizuku, not the reconstructed `aw_light` Binder.
+
+`LightPreviewManager`:
+
+- finds light type `10` (`LIGHT_TYPE_BREATHE`)
+- opens a Lights session at priority `10009`
+- creates `LightState.Builder()`
+- calls `setEffectId(effectId)`
+- calls `setColor(color)`
+- submits the request through `SystemLightsSession.requestLights(...)`
+
+No `setBrightness()` call is used by this Settings preview path.
+
+Additional stock effect IDs observed in Settings:
+
+- effect `65`: in-call light path
+- effect `66`: notification light path
+
+Previously confirmed from Tools:
+
+- effect `32`: rainbow
+- effect `47`: pure colour
+
+v0.5 therefore includes a runtime stock-effect explorer that reflects all visible `EFFECT_ID_*`, `SESSION_PRIORITY_*`, and relevant hidden Lights methods from the actual phone framework, then lets the known working Lights service submit arbitrary effect IDs.
+
+## Stock music-light preview path
+
+The music-light settings are controlled by:
+
+- `Settings.System["flyme_music_light_on"]`
+- disabled packages list: `Settings.System["flyme_music_light_off_apps"]`
+
+Most importantly, the Settings UI does not directly submit a light effect when previewing music. It plays audio with the vendor preview tag:
 
 ```text
-#FF0000 -> #400000
-#00FF00 -> #004000
-#8080FF -> #202040
+light_preview_music
 ```
 
-If the driver maps RGB channel magnitude to PWM/current, this should provide real brightness control while preserving hue approximately.
+The recovered preview playback attributes are:
 
-## Rainbow
+- stream type: `STREAM_MUSIC` (`3`)
+- content type: `CONTENT_TYPE_MUSIC` (`2`)
+- usage: `USAGE_MEDIA` (`1`)
+- AudioAttributes flags: `64`
+- AudioAttributes tag: `light_preview_music`
 
-The native smooth colour-cycling mode is `EFFECT_ID_RAINBOW = 32`. It is driver-controlled and does not require Java-side animation, but its brightness appears fixed because the ring ignores the vendor brightness value.
+This indicates that a system-side Flyme component observes tagged/eligible music playback and drives the multi-segment ring itself. v0.5 reproduces this playback path with a short pulsing test tone, allowing the genuine stock music-light pipeline to be tested without guessing a vendor Binder ABI.
 
-v0.2 therefore keeps the native effect and additionally provides a software rainbow. The software version cycles HSV colours through `EFFECT_ID_PURE` at 25 FPS and applies RGB-channel scaling, allowing brightness testing without modifying the native effect.
+## Next framework targets
 
-## Turning the light off
+The uploaded archive contains product/system_ext/vendor framework directories and optimized artifacts for Flyme runtime, but not the two most useful original JARs. The next files to inspect are:
 
-Closing the Lights session turns the ring off and is hardware verified.
+- `/system/framework/framework.jar`
+- `/apex/com.flyme.runtime/javalib/service-flyme.jar`
 
-## Permission result
-
-`ILightsManager` requires `android.permission.CONTROL_DEVICE_LIGHTS`. On the tested Flyme build the Shizuku ADB-shell process (UID 2000) has this permission, so the ring can be controlled without root.
-
-## Current status
-
-The core control path is confirmed. The remaining brightness question is whether the LED driver honours RGB channel magnitude as intensity or internally normalizes non-zero colours to a fixed output level.
+These should help recover the full vendor `LightState` effect catalogue and the system-side music-light observer/renderer.
