@@ -16,19 +16,19 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** Compact experimental screen. v0.8 plays preview audio in the normal app UID. */
+/** Compact experimental screen. v0.9 reproduces stock Settings RingtoneExt preview. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
     private TextView log;
-    private final MusicPreviewController appMusicPreview = new MusicPreviewController();
+    private AppRingtonePreviewController appMusicPreview;
 
     private final Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(
             new ComponentName("com.vichrov.meizu21rgbring", RingUserService.class.getName()))
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(8)
+            .version(9)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
@@ -52,6 +52,7 @@ public final class ExperimentalActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        appMusicPreview = new AppRingtonePreviewController(this);
         setContentView(buildUi());
         Shizuku.addBinderReceivedListenerSticky(binderListener);
         Shizuku.addRequestPermissionResultListener(permissionListener);
@@ -59,7 +60,7 @@ public final class ExperimentalActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        appMusicPreview.stop();
+        if (appMusicPreview != null) appMusicPreview.stop();
         Shizuku.removeBinderReceivedListener(binderListener);
         Shizuku.removeRequestPermissionResultListener(permissionListener);
         super.onDestroy();
@@ -73,26 +74,27 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v0.8");
+        title.setText("Meizu 21 RGB Ring — v0.9");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("The v0.7 brightnessArray patterns had no physical effect. v0.8 fixes MUSIC capture by generating light_preview_music audio in the normal app process, while Shizuku only reads the stock Lights service.");
+        note.setText("Exact stock Settings music-preview path: RingtoneManager + Meizu's East ville memory URI + AudioAttributes tag light_preview_music. Shizuku is used only to read the stock Lights service.");
         note.setTextSize(14);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(6), 0, dp(18));
         root.addView(note);
 
         root.addView(button("Connect / grant Shizuku", v -> connect()));
-        root.addView(button("1. App-process MUSIC capture", v -> runAppProcessMusicCapture()));
-        root.addView(button("2. Start app-process MUSIC preview only", v -> append(appMusicPreview.start())));
+        root.addView(button("1. Exact STOCK MUSIC capture", v -> runAppProcessMusicCapture()));
+        root.addView(button("2. Start exact stock MUSIC preview only", v -> append(appMusicPreview.start())));
         root.addView(button("3. Probe current stock LightState", v -> call(IRingService::stockDiagnostics)));
-        root.addView(button("Stop app-process MUSIC preview", v -> append(appMusicPreview.stop())));
+        root.addView(button("Show recovered stock preview details", v -> append(appMusicPreview.diagnostics())));
+        root.addView(button("Stop stock MUSIC preview", v -> append(appMusicPreview.stop())));
 
         TextView arrayTitle = new TextView(this);
-        arrayTitle.setText("brightnessArray (kept as negative-control tests)");
+        arrayTitle.setText("brightnessArray (negative-control tests)");
         arrayTitle.setTextSize(18);
         arrayTitle.setTextColor(Color.rgb(30,30,30));
         arrayTitle.setPadding(0, dp(22), 0, dp(8));
@@ -104,7 +106,7 @@ public final class ExperimentalActivity extends Activity {
         root.addView(button("Array: all 16 = 60", v -> call(s -> s.testBrightnessArray(3, Color.RED))));
         root.addView(button("Stop experimental Lights session", v -> call(IRingService::stopBrightnessArrayTest)));
         root.addView(button("Stop everything", v -> {
-            appMusicPreview.stop();
+            if (appMusicPreview != null) appMusicPreview.stop();
             call(IRingService::off);
         }));
 
@@ -128,17 +130,17 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try {
                 String start = appMusicPreview.start();
-                append("APP UID: " + start);
+                append("APP UID / STOCK RINGTONE: " + start);
                 if (start.contains("ERROR")) return;
                 Thread.sleep(900);
-                append("Capturing while app-process preview is playing...\n" + service.stockDiagnostics());
+                append("Capturing while exact stock Ringtone preview is playing...\n" + service.stockDiagnostics());
                 Thread.sleep(250);
                 append(appMusicPreview.stop());
             } catch (Throwable t) {
                 append("CAPTURE ERROR: " + RingController.rootMessage(t));
-                appMusicPreview.stop();
+                if (appMusicPreview != null) appMusicPreview.stop();
             }
-        }, "ring-v08-music-capture").start();
+        }, "ring-v09-stock-ringtone-capture").start();
     }
 
     private Button button(String text, android.view.View.OnClickListener listener) {
@@ -179,7 +181,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v08-call").start();
+        }, "ring-v09-call").start();
     }
 
     private void append(String text) {
