@@ -26,13 +26,15 @@ public final class MainActivity extends Activity {
     private TextView status;
     private View preview;
     private SeekBar red, green, blue, brightness;
+    private SeekBar ledIndex, ledBrightness;
+    private TextView ledIndexLabel;
 
     private final Shizuku.UserServiceArgs userServiceArgs = new Shizuku.UserServiceArgs(
             new ComponentName("com.vichrov.meizu21rgbring", RingUserService.class.getName()))
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(2)
+            .version(3)
             .debuggable(true);
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
@@ -98,7 +100,7 @@ public final class MainActivity extends Activity {
 
         TextView title = text("Meizu 21 RGB Ring", 26, true);
         root.addView(title);
-        TextView sub = text("v0.2 brightness test — Shizuku + Flyme Lights API", 14, false);
+        TextView sub = text("v0.3 segment test — Flyme Lights + AW20072 16-LED experiment", 14, false);
         sub.setPadding(0, dp(4), 0, dp(18));
         root.addView(sub);
 
@@ -106,7 +108,7 @@ public final class MainActivity extends Activity {
         grant.setOnClickListener(v -> requestShizuku());
         root.addView(grant);
 
-        Button diag = button("2. Run diagnostics");
+        Button diag = button("2. Run Lights API diagnostics");
         diag.setOnClickListener(v -> runDiagnostics());
         root.addView(diag);
 
@@ -118,7 +120,7 @@ public final class MainActivity extends Activity {
         red = addSlider(root, "R", 255, 255);
         green = addSlider(root, "G", 255, 87);
         blue = addSlider(root, "B", 255, 87);
-        brightness = addSlider(root, "Brightness (RGB scaling)", 255, 255);
+        brightness = addSlider(root, "High-level brightness (RGB scaling)", 255, 255);
 
         SeekBar.OnSeekBarChangeListener previewListener = new SimpleSeekListener(this::updatePreview);
         red.setOnSeekBarChangeListener(previewListener);
@@ -127,23 +129,65 @@ public final class MainActivity extends Activity {
         brightness.setOnSeekBarChangeListener(previewListener);
         updatePreview();
 
-        TextView note = text("Flyme's setBrightness() is accepted but ignored by the Meizu 21 ring. This build dims the RGB values themselves.", 12, false);
+        TextView note = text("High-level PURE and RAINBOW use the same Flyme Lights API as the previous builds.", 12, false);
         note.setPadding(0, dp(4), 0, dp(10));
         root.addView(note);
 
-        Button apply = button("Apply selected color (adjustable brightness)");
+        Button apply = button("Apply selected color (whole ring)");
         apply.setOnClickListener(v -> call(service -> service.setPureColor(selectedColor(), brightness.getProgress())));
         root.addView(apply);
 
-        Button nativeRainbow = button("Native smooth rainbow (fixed brightness)");
+        Button nativeRainbow = button("Native smooth rainbow (whole ring)");
         nativeRainbow.setOnClickListener(v -> call(service -> service.setRainbow(255)));
         root.addView(nativeRainbow);
 
-        Button softwareRainbow = button("Software rainbow (adjustable brightness)");
+        Button softwareRainbow = button("Software rainbow (whole ring)");
         softwareRainbow.setOnClickListener(v -> call(service -> service.startSoftwareRainbow(brightness.getProgress())));
         root.addView(softwareRainbow);
 
-        Button off = button("Turn ring off");
+        TextView section = text("Experimental 16-LED control", 20, true);
+        section.setPadding(0, dp(24), 0, dp(8));
+        root.addView(section);
+
+        TextView lowNote = text("Meizu's AW20072 implementation exposes 16 logical RGB LEDs through a 96-byte frame. First run diagnostics; direct frame writes may be blocked by Flyme/SELinux for ADB-shell Shizuku.", 12, false);
+        lowNote.setPadding(0, 0, 0, dp(8));
+        root.addView(lowNote);
+
+        Button sysfsDiag = button("3. AW20072 / 16-LED diagnostics");
+        sysfsDiag.setOnClickListener(v -> call(IRingService::sysfsDiagnostics));
+        root.addView(sysfsDiag);
+
+        ledIndexLabel = text("LED index: 0", 14, true);
+        ledIndexLabel.setPadding(0, dp(8), 0, 0);
+        root.addView(ledIndexLabel);
+        ledIndex = new SeekBar(this);
+        ledIndex.setMax(15);
+        ledIndex.setProgress(0);
+        ledIndex.setOnSeekBarChangeListener(new SimpleSeekListener(() ->
+                ledIndexLabel.setText("LED index: " + ledIndex.getProgress())));
+        root.addView(ledIndex, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ledBrightness = addSlider(root, "Per-LED hardware brightness (0..60)", 60, 20);
+
+        Button oneLed = button("Light ONLY selected LED");
+        oneLed.setOnClickListener(v -> call(service -> service.setSingleLed(
+                ledIndex.getProgress(), selectedColor(), ledBrightness.getProgress())));
+        root.addView(oneLed);
+
+        Button allLeds = button("Light all 16 LEDs with selected color");
+        allLeds.setOnClickListener(v -> call(service -> service.setAllLeds(
+                selectedColor(), ledBrightness.getProgress())));
+        root.addView(allLeds);
+
+        Button spin = button("3-color rotating 16-LED test");
+        spin.setOnClickListener(v -> call(service -> service.startThreeColorSpin(ledBrightness.getProgress())));
+        root.addView(spin);
+
+        Button clear = button("Clear low-level 16-LED frame");
+        clear.setOnClickListener(v -> call(IRingService::clearLedFrame));
+        root.addView(clear);
+
+        Button off = button("Turn ring off / stop everything");
         off.setOnClickListener(v -> call(IRingService::off));
         root.addView(off);
 
