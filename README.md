@@ -2,77 +2,68 @@
 
 Experimental controller for the RGB/breathing-light ring around the camera on **Meizu 21 / Flyme 12**.
 
-This project was reconstructed by analysing the stock **Meizu Tools 12.0.15** APK (`com.meizu.flyme.toolbox`). The stock flashlight UI does not drive the ring with a custom animation loop; it talks to Android's Lights service with Meizu/Flyme framework extensions.
+This project was reconstructed by analysing the stock **Meizu Tools 12.0.15** APK (`com.meizu.flyme.toolbox`). The stock flashlight UI talks to Android's Lights service with Meizu/Flyme framework extensions.
 
-## What was found
+## Hardware-verified findings
 
-The stock app:
+Testing on a real Meizu 21 confirmed:
 
-- looks for a light with `LIGHT_TYPE_BREATHE`;
-- opens a high-priority lights session using `SESSION_PRIORITY_FLASHLIGHT`;
-- uses `LightState.EFFECT_ID_PURE` for a fixed RGB colour;
-- uses `LightState.EFFECT_ID_RAINBOW` for the native smooth rainbow effect;
-- uses Meizu's extended `LightState.Builder.setBrightness(int)`;
-- turns the ring off by closing the lights session.
+- ADB-shell Shizuku (UID 2000) has `android.permission.CONTROL_DEVICE_LIGHTS` on the tested Flyme build.
+- The ring is exposed as light **id 10 / type 10** (`LIGHT_TYPE_BREATHE`).
+- `SESSION_PRIORITY_FLASHLIGHT = 10010`.
+- `EFFECT_ID_PURE = 47` works for arbitrary RGB colours.
+- `EFFECT_ID_RAINBOW = 32` works and produces the native smooth rainbow animation.
+- Closing the Lights session turns the ring off.
+- Meizu's `LightState.Builder.setBrightness(int)` is accepted, but values from 0 to 255 do **not** change visible ring brightness on the tested device.
 
-See [`ANALYSIS.md`](ANALYSIS.md) for reverse-engineering notes.
+Because the vendor brightness field is ignored, v0.2 tests brightness by scaling the actual RGB channel values before sending `EFFECT_ID_PURE`.
 
-## Why Shizuku/Sui is used
-
-Direct access to `ILightsManager` is protected by `android.permission.CONTROL_DEVICE_LIGHTS`, which is a privileged/signature permission. A normal sideloaded APK cannot obtain it.
-
-This test app therefore runs the ring-control code in a **Shizuku UserService**. Depending on the Flyme build, ADB-shell Shizuku may or may not have sufficient permission. **Sui/root has the best chance of working.**
-
-The app includes diagnostics so the actual permission state and available light devices can be checked on the phone.
-
-## Test features
+## Features
 
 - Connect through Shizuku/Sui
-- Enumerate Lights service devices
-- Detect `LIGHT_TYPE_BREATHE`
+- Enumerate and diagnose the Android Lights service
 - Arbitrary RGB selection
-- Brightness 0–255
+- RGB-scaled software brightness (0–255)
 - Native `EFFECT_ID_PURE`
-- Native smooth `EFFECT_ID_RAINBOW`
+- Native smooth `EFFECT_ID_RAINBOW` at driver-controlled brightness
+- Software rainbow at adjustable RGB-scaled brightness
 - Ring OFF by closing the light session
-- On-device diagnostics
 
 ## Requirements
 
-- Meizu 21 with a Flyme build exposing the RGB camera ring through the vendor Lights extensions
+- Meizu 21 with Flyme exposing the camera RGB ring through the vendor Lights extensions
 - Android 12+
-- Shizuku or Sui
+- Shizuku (ADB shell works on the tested device) or Sui
 
 ## Build
 
-The repository contains a GitHub Actions workflow. Every push builds a debug APK and uploads it as the **Meizu21-RGB-Ring-debug** workflow artifact.
+Every push is built by GitHub Actions and uploaded as the **Meizu21-RGB-Ring-debug** artifact.
 
-Local build requires JDK 17, Android SDK 35 and Gradle 8.9 (or a compatible version):
+Local build:
 
 ```bash
 gradle :app:assembleDebug
 ```
 
-The output is:
+Output:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## First test procedure
+## v0.2 brightness test
 
-1. Install/start Shizuku (or preferably Sui if the device is rooted).
-2. Install the generated debug APK.
-3. Open **Meizu 21 RGB Ring**.
-4. Press **Grant / connect Shizuku**.
-5. Press **Run diagnostics**.
-6. Confirm that a light with the Meizu `LIGHT_TYPE_BREATHE` type is detected.
-7. Try a low/medium brightness fixed colour first.
-8. Try **Native smooth rainbow**.
-9. Use **Turn ring off** when finished.
+1. Connect Shizuku.
+2. Pick a colour.
+3. Set **Brightness (RGB scaling)** to values such as 255, 128, 64, 16 and 0.
+4. Press **Apply selected color (adjustable brightness)** and check whether physical brightness changes while hue stays similar.
+5. **Native smooth rainbow (fixed brightness)** uses Meizu's native `EFFECT_ID_RAINBOW` unchanged.
+6. **Software rainbow (adjustable brightness)** repeatedly sends `EFFECT_ID_PURE` colours at 25 FPS and applies the RGB brightness scaling.
+
+See [`ANALYSIS.md`](ANALYSIS.md) for reverse-engineering and hardware-test notes.
 
 ## Status
 
-**v0.1-test** — first hardware test build. The exact Flyme framework behaviour still needs verification on a real Meizu 21.
+**v0.2-brightness-test** — PURE, native RAINBOW, OFF and ADB-shell Shizuku access are hardware verified. RGB-channel scaling is the current brightness experiment.
 
 This project is not affiliated with Meizu.
