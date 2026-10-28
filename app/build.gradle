@@ -10,8 +10,8 @@ android {
         applicationId 'com.vichrov.meizu21rgbring'
         minSdk 31
         targetSdk 35
-        versionCode 8
-        versionName '0.8-app-process-music-capture'
+        versionCode 9
+        versionName '0.9-stock-ringtone-preview'
     }
 
     buildFeatures {
