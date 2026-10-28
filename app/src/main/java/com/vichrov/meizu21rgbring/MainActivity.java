@@ -32,7 +32,7 @@ public final class MainActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(1)
+            .version(2)
             .debuggable(true);
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
@@ -98,7 +98,7 @@ public final class MainActivity extends Activity {
 
         TextView title = text("Meizu 21 RGB Ring", 26, true);
         root.addView(title);
-        TextView sub = text("Test controller reconstructed from Meizu Tools 12.0.15", 14, false);
+        TextView sub = text("v0.2 brightness test — Shizuku + Flyme Lights API", 14, false);
         sub.setPadding(0, dp(4), 0, dp(18));
         root.addView(sub);
 
@@ -118,20 +118,30 @@ public final class MainActivity extends Activity {
         red = addSlider(root, "R", 255, 255);
         green = addSlider(root, "G", 255, 87);
         blue = addSlider(root, "B", 255, 87);
-        brightness = addSlider(root, "Brightness", 255, 255);
-        SeekBar.OnSeekBarChangeListener colorListener = new SimpleSeekListener(this::updatePreview);
-        red.setOnSeekBarChangeListener(colorListener);
-        green.setOnSeekBarChangeListener(colorListener);
-        blue.setOnSeekBarChangeListener(colorListener);
+        brightness = addSlider(root, "Brightness (RGB scaling)", 255, 255);
+
+        SeekBar.OnSeekBarChangeListener previewListener = new SimpleSeekListener(this::updatePreview);
+        red.setOnSeekBarChangeListener(previewListener);
+        green.setOnSeekBarChangeListener(previewListener);
+        blue.setOnSeekBarChangeListener(previewListener);
+        brightness.setOnSeekBarChangeListener(previewListener);
         updatePreview();
 
-        Button apply = button("Apply selected color");
+        TextView note = text("Flyme's setBrightness() is accepted but ignored by the Meizu 21 ring. This build dims the RGB values themselves.", 12, false);
+        note.setPadding(0, dp(4), 0, dp(10));
+        root.addView(note);
+
+        Button apply = button("Apply selected color (adjustable brightness)");
         apply.setOnClickListener(v -> call(service -> service.setPureColor(selectedColor(), brightness.getProgress())));
         root.addView(apply);
 
-        Button rainbow = button("Native smooth rainbow");
-        rainbow.setOnClickListener(v -> call(service -> service.setRainbow(brightness.getProgress())));
-        root.addView(rainbow);
+        Button nativeRainbow = button("Native smooth rainbow (fixed brightness)");
+        nativeRainbow.setOnClickListener(v -> call(service -> service.setRainbow(255)));
+        root.addView(nativeRainbow);
+
+        Button softwareRainbow = button("Software rainbow (adjustable brightness)");
+        softwareRainbow.setOnClickListener(v -> call(service -> service.startSoftwareRainbow(brightness.getProgress())));
+        root.addView(softwareRainbow);
 
         Button off = button("Turn ring off");
         off.setOnClickListener(v -> call(IRingService::off));
@@ -227,8 +237,16 @@ public final class MainActivity extends Activity {
         return Color.rgb(red.getProgress(), green.getProgress(), blue.getProgress());
     }
 
+    private int scaledPreviewColor() {
+        int br = brightness == null ? 255 : brightness.getProgress();
+        int r = red == null ? 0 : (red.getProgress() * br + 127) / 255;
+        int g = green == null ? 0 : (green.getProgress() * br + 127) / 255;
+        int b = blue == null ? 0 : (blue.getProgress() * br + 127) / 255;
+        return Color.rgb(r, g, b);
+    }
+
     private void updatePreview() {
-        if (preview != null && red != null) preview.setBackgroundColor(selectedColor());
+        if (preview != null && red != null) preview.setBackgroundColor(scaledPreviewColor());
     }
 
     private SeekBar addSlider(LinearLayout root, String label, int max, int initial) {
