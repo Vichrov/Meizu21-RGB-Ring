@@ -38,6 +38,36 @@ public final class RingUserService extends IRingService.Stub {
     }
 
     @Override
+    public String sysfsDiagnostics() {
+        if (controller == null) return "INIT ERROR: " + initError;
+        return controller.sysfsDiagnostics();
+    }
+
+    @Override
+    public String setSingleLed(int index, int argb, int brightness) {
+        if (controller == null) return "INIT ERROR: " + initError;
+        return controller.setSingleLed(index, argb, brightness);
+    }
+
+    @Override
+    public String setAllLeds(int argb, int brightness) {
+        if (controller == null) return "INIT ERROR: " + initError;
+        return controller.setAllLeds(argb, brightness);
+    }
+
+    @Override
+    public String startThreeColorSpin(int brightness) {
+        if (controller == null) return "INIT ERROR: " + initError;
+        return controller.startThreeColorSpin(brightness);
+    }
+
+    @Override
+    public String clearLedFrame() {
+        if (controller == null) return "INIT ERROR: " + initError;
+        return controller.clearLedFrame();
+    }
+
+    @Override
     public String off() {
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.off();
