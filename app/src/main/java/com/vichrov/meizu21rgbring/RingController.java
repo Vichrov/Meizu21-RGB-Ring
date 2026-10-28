@@ -4,10 +4,13 @@ import android.graphics.Color;
 import android.os.Binder;
 import android.os.IBinder;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -15,11 +18,22 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Clean-room implementation of the mechanism observed in Meizu Tools 12.0.15.
- * Runs inside a Shizuku UserService, where non-SDK reflection is not blocked.
+ * Meizu 21 RGB ring experiments.
+ *
+ * High-level mode uses Flyme's Android Lights extensions through Shizuku.
+ * Low-level experimental mode targets the AW20072 16-pixel frame sysfs interface
+ * reconstructed from the Meizu 21 Pro hardware implementation.
  */
 final class RingController {
     private static final String LIGHTS_SERVICE = "lights";
+
+    // AW20072 driver interface used by Meizu 21-series ring implementations.
+    private static final String SYSFS_BASE = "/sys/class/leds/aw20072_led";
+    private static final String SYSFS_FRAME = SYSFS_BASE + "/frame";
+    private static final String SYSFS_EFFECT = SYSFS_BASE + "/effect";
+    private static final int LED_COUNT = 16;
+    private static final int FRAME_BYTES = 96; // 16 LEDs * RGB * (color + brightness)
+    private static final int MAX_HW_BRIGHTNESS = 60;
 
     private final IBinder sessionToken = new Binder();
     private final ScheduledExecutorService animationExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -43,6 +57,7 @@ final class RingController {
     private boolean sessionOpen;
 
     private ScheduledFuture<?> softwareRainbowTask;
+    private ScheduledFuture<?> segmentAnimationTask;
     private int animationGeneration;
     private String lastAnimationError;
 
@@ -60,8 +75,11 @@ final class RingController {
         out.append("Selected ring light id = ").append(ringLightId).append('\n');
         out.append("Session open = ").append(sessionOpen).append('\n');
         out.append("Software rainbow = ").append(softwareRainbowTask != null && !softwareRainbowTask.isCancelled()).append('\n');
+        out.append("16-LED animation = ").append(segmentAnimationTask != null && !segmentAnimationTask.isCancelled()).append('\n');
         if (lastAnimationError != null) out.append("Animation error = ").append(lastAnimationError).append('\n');
-        out.append("Brightness mode = RGB channel scaling (vendor setBrightness is ignored on tested Meizu 21)\n");
+        out.append("Brightness mode = RGB scaling for high-level PURE\n");
+        out.append("AW20072 expected LEDs = 16, frame bytes = 96\n");
+        out.append("AW20072 frame path = ").append(SYSFS_FRAME).append('\n');
         out.append("\nLights:\n");
         try {
             List<?> lights = (List<?>) invoke(getLights, lightsService);
@@ -84,7 +102,7 @@ final class RingController {
 
     synchronized String setPureColor(int argb, int brightness) {
         try {
-            stopSoftwareRainbowLocked();
+            stopAllAnimationsLocked();
             brightness = clamp(brightness, 0, 255);
             int hwColor = scaleRgb(argb, brightness);
             apply(effectPure, 255, hwColor, true);
@@ -97,7 +115,7 @@ final class RingController {
 
     synchronized String setRainbow(int ignoredBrightness) {
         try {
-            stopSoftwareRainbowLocked();
+            stopAllAnimationsLocked();
             apply(effectRainbow, 255, -1, false);
             return "NATIVE RAINBOW OK: light=" + ringLightId + " (driver-controlled fixed brightness)";
         } catch (Throwable t) {
@@ -107,7 +125,7 @@ final class RingController {
 
     synchronized String startSoftwareRainbow(int brightness) {
         try {
-            stopSoftwareRainbowLocked();
+            stopAllAnimationsLocked();
             brightness = clamp(brightness, 0, 255);
             final int requestedBrightness = brightness;
             final int generation = ++animationGeneration;
@@ -140,25 +158,213 @@ final class RingController {
         }
     }
 
-    synchronized String off() {
-        try {
-            stopSoftwareRainbowLocked();
-            if (sessionOpen) {
-                invoke(closeSession, lightsService, sessionToken);
-                sessionOpen = false;
+    synchronized String sysfsDiagnostics() {
+        StringBuilder out = new StringBuilder("AW20072 / 16-LED diagnostics\n");
+        File base = new File(SYSFS_BASE);
+        File frame = new File(SYSFS_FRAME);
+        File effect = new File(SYSFS_EFFECT);
+        out.append("base: exists=").append(base.exists())
+                .append(" dir=").append(base.isDirectory())
+                .append(" read=").append(base.canRead())
+                .append(" write=").append(base.canWrite()).append('\n');
+        out.append("frame: exists=").append(frame.exists())
+                .append(" read=").append(frame.canRead())
+                .append(" write=").append(frame.canWrite()).append('\n');
+        out.append("effect: exists=").append(effect.exists())
+                .append(" read=").append(effect.canRead())
+                .append(" write=").append(effect.canWrite()).append('\n');
+
+        File leds = new File("/sys/class/leds");
+        String[] names = leds.list();
+        if (names != null) {
+            Arrays.sort(names);
+            out.append("/sys/class/leds entries:");
+            for (String name : names) {
+                if (name.toLowerCase().contains("aw") || name.toLowerCase().contains("rgb")
+                        || name.toLowerCase().contains("led")) {
+                    out.append("\n  ").append(name);
+                }
             }
-            return "OFF OK (animation stopped, lights session closed)";
+            out.append('\n');
+        } else {
+            out.append("Cannot list /sys/class/leds\n");
+        }
+        out.append("Frame format expected: 16 logical LEDs, 96 binary bytes, RGB channels + per-channel brightness 0..60.\n");
+        out.append("No frame was written by this diagnostic.");
+        return out.toString();
+    }
+
+    synchronized String setSingleLed(int index, int argb, int brightness) {
+        try {
+            index = clamp(index, 0, LED_COUNT - 1);
+            brightness = clamp(brightness, 0, MAX_HW_BRIGHTNESS);
+            prepareLowLevelModeLocked();
+            byte[] frame = new byte[FRAME_BYTES];
+            putPixel(frame, index, argb, brightness);
+            writeFrame(frame);
+            return String.format("16-LED OK: LED=%d color=#%06X brightness=%d/60",
+                    index, argb & 0x00FFFFFF, brightness);
+        } catch (Throwable t) {
+            return "16-LED ERROR: " + rootMessage(t);
+        }
+    }
+
+    synchronized String setAllLeds(int argb, int brightness) {
+        try {
+            brightness = clamp(brightness, 0, MAX_HW_BRIGHTNESS);
+            prepareLowLevelModeLocked();
+            byte[] frame = new byte[FRAME_BYTES];
+            for (int i = 0; i < LED_COUNT; i++) putPixel(frame, i, argb, brightness);
+            writeFrame(frame);
+            return String.format("16-LED ALL OK: color=#%06X brightness=%d/60",
+                    argb & 0x00FFFFFF, brightness);
+        } catch (Throwable t) {
+            return "16-LED ALL ERROR: " + rootMessage(t);
+        }
+    }
+
+    synchronized String startThreeColorSpin(int brightness) {
+        try {
+            stopAllAnimationsLocked();
+            closeLightsSessionLocked();
+            brightness = clamp(brightness, 0, MAX_HW_BRIGHTNESS);
+            final int hwBrightness = brightness;
+            final int generation = ++animationGeneration;
+            lastAnimationError = null;
+
+            segmentAnimationTask = animationExecutor.scheduleAtFixedRate(new Runnable() {
+                private int phase;
+                private final int[] colors = {Color.RED, Color.GREEN, Color.BLUE};
+
+                @Override
+                public void run() {
+                    synchronized (RingController.this) {
+                        if (generation != animationGeneration) return;
+                        try {
+                            byte[] frame = new byte[FRAME_BYTES];
+                            for (int i = 0; i < LED_COUNT; i++) {
+                                putPixel(frame, i, colors[(i + phase) % colors.length], hwBrightness);
+                            }
+                            writeFrame(frame);
+                            phase = (phase + 1) % colors.length;
+                        } catch (Throwable t) {
+                            lastAnimationError = rootMessage(t);
+                            stopSegmentAnimationLocked();
+                        }
+                    }
+                }
+            }, 0, 80, TimeUnit.MILLISECONDS);
+            return "3-COLOR 16-LED SPIN STARTED: brightness=" + brightness + "/60";
+        } catch (Throwable t) {
+            return "3-COLOR SPIN ERROR: " + rootMessage(t);
+        }
+    }
+
+    synchronized String clearLedFrame() {
+        try {
+            stopAllAnimationsLocked();
+            closeLightsSessionLocked();
+            writeFrame(new byte[FRAME_BYTES]);
+            tryWriteEffectZero();
+            return "16-LED FRAME CLEARED";
+        } catch (Throwable t) {
+            return "CLEAR FRAME ERROR: " + rootMessage(t);
+        }
+    }
+
+    synchronized String off() {
+        String lowLevel = null;
+        try {
+            stopAllAnimationsLocked();
+            closeLightsSessionLocked();
+            if (new File(SYSFS_FRAME).exists()) {
+                try {
+                    writeFrame(new byte[FRAME_BYTES]);
+                    tryWriteEffectZero();
+                    lowLevel = " + AW20072 frame cleared";
+                } catch (Throwable t) {
+                    lowLevel = " (AW20072 clear skipped: " + rootMessage(t) + ")";
+                }
+            }
+            return "OFF OK (animations stopped, lights session closed)" + (lowLevel == null ? "" : lowLevel);
         } catch (Throwable t) {
             sessionOpen = false;
             return "OFF ERROR: " + rootMessage(t);
         }
     }
 
-    private void stopSoftwareRainbowLocked() {
+    private void prepareLowLevelModeLocked() throws Exception {
+        stopAllAnimationsLocked();
+        closeLightsSessionLocked();
+        File frame = new File(SYSFS_FRAME);
+        if (!frame.exists()) throw new IllegalStateException(SYSFS_FRAME + " does not exist");
+    }
+
+    private void closeLightsSessionLocked() throws Exception {
+        if (sessionOpen) {
+            invoke(closeSession, lightsService, sessionToken);
+            sessionOpen = false;
+        }
+    }
+
+    private void stopAllAnimationsLocked() {
         animationGeneration++;
+        stopSoftwareRainbowLocked();
+        stopSegmentAnimationLocked();
+    }
+
+    private void stopSoftwareRainbowLocked() {
         if (softwareRainbowTask != null) {
             softwareRainbowTask.cancel(false);
             softwareRainbowTask = null;
+        }
+    }
+
+    private void stopSegmentAnimationLocked() {
+        if (segmentAnimationTask != null) {
+            segmentAnimationTask.cancel(false);
+            segmentAnimationTask = null;
+        }
+    }
+
+    /**
+     * Stock AW20072 frame encoder reconstructed from the Meizu 21-series implementation.
+     * The 96-byte hardware order is the logical 96-byte stream rotated by six bytes:
+     * frameMap[n] = (n + 6) mod 96.
+     */
+    private static void putPixel(byte[] wire, int led, int argb, int brightness) {
+        if (wire == null || wire.length != FRAME_BYTES) throw new IllegalArgumentException("frame size");
+        if (led < 0 || led >= LED_COUNT) throw new IllegalArgumentException("LED index " + led);
+        brightness = clamp(brightness, 0, MAX_HW_BRIGHTNESS);
+        int[] channels = {
+                (argb >> 16) & 0xFF,
+                (argb >> 8) & 0xFF,
+                argb & 0xFF
+        };
+        for (int c = 0; c < 3; c++) {
+            int logicalColor = 6 * led + 2 * c;
+            int logicalBrightness = logicalColor + 1;
+            int colorPos = (logicalColor + 6) % FRAME_BYTES;
+            int brightnessPos = (logicalBrightness + 6) % FRAME_BYTES;
+            int value = channels[c];
+            wire[colorPos] = (byte) (value == 0 ? 0 : Math.max(1, value >> 2));
+            wire[brightnessPos] = (byte) brightness;
+        }
+    }
+
+    private static void writeFrame(byte[] frame) throws Exception {
+        if (frame == null || frame.length != FRAME_BYTES) throw new IllegalArgumentException("Expected 96-byte frame");
+        try (FileOutputStream out = new FileOutputStream(SYSFS_FRAME, false)) {
+            out.write(frame);
+            out.flush();
+        }
+    }
+
+    private static void tryWriteEffectZero() {
+        try (FileOutputStream out = new FileOutputStream(SYSFS_EFFECT, false)) {
+            out.write("0\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            out.flush();
+        } catch (Throwable ignored) {
         }
     }
 
