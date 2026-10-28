@@ -4,9 +4,9 @@ Source APK analysed: `com.meizu.flyme.toolbox` (Meizu Tools 12.0.15).
 
 ## RGB ring architecture
 
-The flashlight section contains code for a Meizu breathing/RGB light. The relevant control path resolves the Android Lights framework and vendor extensions rather than writing RGB values to sysfs directly.
+The flashlight section controls the camera ring through Android's Lights framework plus Meizu/Flyme extensions rather than direct sysfs writes.
 
-Observed concepts/identifiers:
+Relevant identifiers:
 
 - `LIGHT_TYPE_BREATHE`
 - `SESSION_PRIORITY_FLASHLIGHT`
@@ -16,52 +16,61 @@ Observed concepts/identifiers:
 - `LightState.Builder.setEffectId(int)`
 - `LightsManager` / `ILightsManager`
 
-The stock UI selects a light whose type matches `LIGHT_TYPE_BREATHE`, opens a flashlight-priority light session, and then submits a `LightState` to that light.
+The app selects the breathe light, opens a flashlight-priority session and submits a `LightState` for that light.
 
-## Fixed colour
+## Hardware verification on Meizu 21
 
-For a fixed colour, the app selects `EFFECT_ID_PURE` and supplies a colour plus brightness. The Meizu implementation carries brightness separately while the colour is still represented as an ARGB-style integer.
+The first test APK was run on a real Meizu 21 and returned:
 
-Stock preset colours seen in the APK include values such as:
+```text
+Shizuku UID = 2000 (ADB shell)
+CONTROL_DEVICE_LIGHTS = GRANTED
+LIGHT_TYPE_BREATHE = 10
+SESSION_PRIORITY_FLASHLIGHT = 10010
+EFFECT_ID_PURE = 47
+EFFECT_ID_RAINBOW = 32
+Selected ring light id = 10
+```
 
-- `#FFFF5757`
-- `#FFFF833E`
-- `#FFFFF066`
-- `#FFF051E0`
-- `#FF59E742`
-- `#FF50F0F2`
-- `#FF26CBFF`
-- `#FFC13DFF`
+The following operations were physically verified:
 
-The test app exposes arbitrary RGB instead of limiting the user to these presets.
+- PURE arbitrary colour: works
+- native RAINBOW: works
+- OFF by closing the session: works
+- ADB-shell Shizuku: sufficient; root/Sui is not required on the tested build
+
+## Brightness behavior
+
+Although the Flyme framework exposes `LightState.Builder.setBrightness(int)`, hardware testing showed no visible difference between brightness `0` and `255` for the camera ring. Changing the ARGB alpha byte also did not provide usable brightness control.
+
+This means the vendor brightness property is accepted by the framework but ignored (or not mapped to LED current) for this specific light/driver path.
+
+v0.2 therefore tests a different mechanism: multiply each RGB channel by the requested brightness before submitting `EFFECT_ID_PURE`.
+
+For example, at roughly 25% brightness:
+
+```text
+#FF0000 -> #400000
+#00FF00 -> #004000
+#8080FF -> #202040
+```
+
+If the driver maps RGB channel magnitude to PWM/current, this should provide real brightness control while preserving hue approximately.
 
 ## Rainbow
 
-The smooth colour-cycling mode is a native/vendor effect: `EFFECT_ID_RAINBOW`.
+The native smooth colour-cycling mode is `EFFECT_ID_RAINBOW = 32`. It is driver-controlled and does not require Java-side animation, but its brightness appears fixed because the ring ignores the vendor brightness value.
 
-That is important because the application does **not** need to approximate the animation by repeatedly changing RGB values on the Java side. Flyme/the light driver performs the effect itself.
+v0.2 therefore keeps the native effect and additionally provides a software rainbow. The software version cycles HSV colours through `EFFECT_ID_PURE` at 25 FPS and applies RGB-channel scaling, allowing brightness testing without modifying the native effect.
 
 ## Turning the light off
 
-The stock control path releases/closes the lights session. The test application follows the same idea and closes its `ILightsManager` session when OFF is requested.
+Closing the Lights session turns the ring off and is hardware verified.
 
-## Permission problem
+## Permission result
 
-The Lights Binder interface is protected by `android.permission.CONTROL_DEVICE_LIGHTS`. A normal third-party APK cannot normally obtain this privileged/signature permission.
+`ILightsManager` requires `android.permission.CONTROL_DEVICE_LIGHTS`. On the tested Flyme build the Shizuku ADB-shell process (UID 2000) has this permission, so the ring can be controlled without root.
 
-For that reason the first test implementation uses a Shizuku UserService and invokes the Lights Binder interface from the Shizuku/Sui process.
+## Current status
 
-Two cases need to be tested on a real Meizu 21:
-
-1. **ADB-shell Shizuku** — may work if Flyme grants the shell UID access to the Lights service.
-2. **Sui/root** — expected to have the highest chance of success if shell is denied.
-
-## Test goal
-
-The first APK is deliberately diagnostic. Before adding automation, notification effects, music visualisation, or integrations, it should establish:
-
-- whether the vendor constants are visible to an external process;
-- whether Shizuku shell/root can open a lights session;
-- the actual `LIGHT_TYPE_BREATHE` value on the tested Flyme build;
-- the ring light ID returned by `getLights()`;
-- whether both PURE and RAINBOW effects can be submitted successfully.
+The core control path is confirmed. The remaining brightness question is whether the LED driver honours RGB channel magnitude as intensity or internally normalizes non-zero colours to a fixed output level.
