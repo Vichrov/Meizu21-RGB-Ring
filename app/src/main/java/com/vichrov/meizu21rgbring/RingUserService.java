@@ -75,19 +75,28 @@ public final class RingUserService extends IRingService.Stub {
         return controller.clearLedFrame();
     }
 
+    /*
+     * v0.4 exposed these as aw_light Binder tests. Stock Flyme on the tested Meizu 21
+     * rejects that reconstructed Binder ABI. Keep the UI/AIDL compatible, but route the
+     * buttons through the exact LightsManager path recovered from Settings 12.1.0.
+     */
     @Override
     public String awDiagnostics() {
-        return awController.diagnostics();
+        return "v0.5: aw Binder disabled; using stock Settings Lights API instead.\n\n"
+                + stockController.diagnostics();
     }
 
     @Override
     public String startAwEffect(int effect, int argb, int strengthPercent, int amplitude, int progress) {
-        return awController.startEffect(effect, argb, strengthPercent, amplitude, progress);
+        awController.stop();
+        if (controller != null) controller.off();
+        return "v0.5 STOCK PATH: "
+                + stockController.setEffect(effect, argb, StockEffectsController.SETTINGS_PREVIEW_PRIORITY);
     }
 
     @Override
     public String stopAwEffect() {
-        return awController.stop();
+        return stockController.stop();
     }
 
     @Override
