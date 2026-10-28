@@ -16,18 +16,19 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** Compact v0.7 experimental screen for stock music capture and brightnessArray tests. */
+/** Compact experimental screen. v0.8 plays preview audio in the normal app UID. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
     private TextView log;
+    private final MusicPreviewController appMusicPreview = new MusicPreviewController();
 
     private final Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(
             new ComponentName("com.vichrov.meizu21rgbring", RingUserService.class.getName()))
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(7)
+            .version(8)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
@@ -58,6 +59,7 @@ public final class ExperimentalActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        appMusicPreview.stop();
         Shizuku.removeBinderReceivedListener(binderListener);
         Shizuku.removeRequestPermissionResultListener(permissionListener);
         super.onDestroy();
@@ -71,34 +73,40 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v0.7");
+        title.setText("Meizu 21 RGB Ring — v0.8");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("Stock Flyme experiment: automatic MUSIC capture and LightState.Builder.setBrightnessArray().");
+        note.setText("The v0.7 brightnessArray patterns had no physical effect. v0.8 fixes MUSIC capture by generating light_preview_music audio in the normal app process, while Shizuku only reads the stock Lights service.");
         note.setTextSize(14);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(6), 0, dp(18));
         root.addView(note);
 
         root.addView(button("Connect / grant Shizuku", v -> connect()));
-        root.addView(button("1. Automatic MUSIC capture", v -> call(s -> s.runAutomaticMusicCapture())));
+        root.addView(button("1. App-process MUSIC capture", v -> runAppProcessMusicCapture()));
+        root.addView(button("2. Start app-process MUSIC preview only", v -> append(appMusicPreview.start())));
+        root.addView(button("3. Probe current stock LightState", v -> call(IRingService::stockDiagnostics)));
+        root.addView(button("Stop app-process MUSIC preview", v -> append(appMusicPreview.stop())));
 
-        TextView hint = new TextView(this);
-        hint.setText("BrightnessArray tests submit EFFECT_ID_MUSIC=38 with 16 integer brightness values (0..60). Watch the physical ring while pressing each test.");
-        hint.setTextSize(13);
-        hint.setTextColor(Color.DKGRAY);
-        hint.setPadding(0, dp(18), 0, dp(8));
-        root.addView(hint);
+        TextView arrayTitle = new TextView(this);
+        arrayTitle.setText("brightnessArray (kept as negative-control tests)");
+        arrayTitle.setTextSize(18);
+        arrayTitle.setTextColor(Color.rgb(30,30,30));
+        arrayTitle.setPadding(0, dp(22), 0, dp(8));
+        root.addView(arrayTitle);
 
-        root.addView(button("2. Array: ONLY segment 0 = 60", v -> call(s -> s.testBrightnessArray(0, Color.RED))));
-        root.addView(button("3. Array: alternating 60 / 0", v -> call(s -> s.testBrightnessArray(1, Color.RED))));
-        root.addView(button("4. Array: ramp 0 → 60", v -> call(s -> s.testBrightnessArray(2, Color.RED))));
-        root.addView(button("5. Array: all 16 = 60", v -> call(s -> s.testBrightnessArray(3, Color.RED))));
-        root.addView(button("Stop experimental session", v -> call(IRingService::stopBrightnessArrayTest)));
-        root.addView(button("Stop everything", v -> call(IRingService::off)));
+        root.addView(button("Array: ONLY segment 0 = 60", v -> call(s -> s.testBrightnessArray(0, Color.RED))));
+        root.addView(button("Array: alternating 60 / 0", v -> call(s -> s.testBrightnessArray(1, Color.RED))));
+        root.addView(button("Array: ramp 0 → 60", v -> call(s -> s.testBrightnessArray(2, Color.RED))));
+        root.addView(button("Array: all 16 = 60", v -> call(s -> s.testBrightnessArray(3, Color.RED))));
+        root.addView(button("Stop experimental Lights session", v -> call(IRingService::stopBrightnessArrayTest)));
+        root.addView(button("Stop everything", v -> {
+            appMusicPreview.stop();
+            call(IRingService::off);
+        }));
 
         log = new TextView(this);
         log.setTextSize(12);
@@ -110,6 +118,27 @@ public final class ExperimentalActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         return scroll;
+    }
+
+    private void runAppProcessMusicCapture() {
+        if (service == null) {
+            append("Not connected.");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String start = appMusicPreview.start();
+                append("APP UID: " + start);
+                if (start.contains("ERROR")) return;
+                Thread.sleep(900);
+                append("Capturing while app-process preview is playing...\n" + service.stockDiagnostics());
+                Thread.sleep(250);
+                append(appMusicPreview.stop());
+            } catch (Throwable t) {
+                append("CAPTURE ERROR: " + RingController.rootMessage(t));
+                appMusicPreview.stop();
+            }
+        }, "ring-v08-music-capture").start();
     }
 
     private Button button(String text, android.view.View.OnClickListener listener) {
@@ -150,7 +179,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v07-call").start();
+        }, "ring-v08-call").start();
     }
 
     private void append(String text) {
