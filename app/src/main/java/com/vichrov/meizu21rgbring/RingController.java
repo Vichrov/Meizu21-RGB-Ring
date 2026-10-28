@@ -1,5 +1,6 @@
 package com.vichrov.meizu21rgbring;
 
+import android.graphics.Color;
 import android.os.Binder;
 import android.os.IBinder;
 
@@ -8,6 +9,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Clean-room implementation of the mechanism observed in Meizu Tools 12.0.15.
@@ -17,6 +22,12 @@ final class RingController {
     private static final String LIGHTS_SERVICE = "lights";
 
     private final IBinder sessionToken = new Binder();
+    private final ScheduledExecutorService animationExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "meizu21-ring-animation");
+        t.setDaemon(true);
+        return t;
+    });
+
     private Object lightsService;
     private Method getLights;
     private Method openSession;
@@ -31,6 +42,10 @@ final class RingController {
     private int ringLightId = -1;
     private boolean sessionOpen;
 
+    private ScheduledFuture<?> softwareRainbowTask;
+    private int animationGeneration;
+    private String lastAnimationError;
+
     RingController() throws Exception {
         initialize();
     }
@@ -44,6 +59,9 @@ final class RingController {
         out.append("EFFECT_ID_RAINBOW = ").append(effectRainbow).append('\n');
         out.append("Selected ring light id = ").append(ringLightId).append('\n');
         out.append("Session open = ").append(sessionOpen).append('\n');
+        out.append("Software rainbow = ").append(softwareRainbowTask != null && !softwareRainbowTask.isCancelled()).append('\n');
+        if (lastAnimationError != null) out.append("Animation error = ").append(lastAnimationError).append('\n');
+        out.append("Brightness mode = RGB channel scaling (vendor setBrightness is ignored on tested Meizu 21)\n");
         out.append("\nLights:\n");
         try {
             List<?> lights = (List<?>) invoke(getLights, lightsService);
@@ -66,35 +84,81 @@ final class RingController {
 
     synchronized String setPureColor(int argb, int brightness) {
         try {
+            stopSoftwareRainbowLocked();
             brightness = clamp(brightness, 0, 255);
-            int hwColor = (brightness << 24) | (argb & 0x00FFFFFF);
-            apply(effectPure, brightness, hwColor, true);
-            return String.format("PURE OK: light=%d color=#%08X brightness=%d", ringLightId, hwColor, brightness);
+            int hwColor = scaleRgb(argb, brightness);
+            apply(effectPure, 255, hwColor, true);
+            return String.format("PURE OK: light=%d requested=#%06X scaled=#%06X softwareBrightness=%d",
+                    ringLightId, argb & 0x00FFFFFF, hwColor & 0x00FFFFFF, brightness);
         } catch (Throwable t) {
             return "PURE ERROR: " + rootMessage(t);
         }
     }
 
-    synchronized String setRainbow(int brightness) {
+    synchronized String setRainbow(int ignoredBrightness) {
         try {
-            brightness = clamp(brightness, 0, 255);
-            apply(effectRainbow, brightness, -1, false);
-            return "RAINBOW OK: light=" + ringLightId + " brightness=" + brightness;
+            stopSoftwareRainbowLocked();
+            apply(effectRainbow, 255, -1, false);
+            return "NATIVE RAINBOW OK: light=" + ringLightId + " (driver-controlled fixed brightness)";
         } catch (Throwable t) {
-            return "RAINBOW ERROR: " + rootMessage(t);
+            return "NATIVE RAINBOW ERROR: " + rootMessage(t);
+        }
+    }
+
+    synchronized String startSoftwareRainbow(int brightness) {
+        try {
+            stopSoftwareRainbowLocked();
+            brightness = clamp(brightness, 0, 255);
+            final int requestedBrightness = brightness;
+            final int generation = ++animationGeneration;
+            lastAnimationError = null;
+
+            softwareRainbowTask = animationExecutor.scheduleAtFixedRate(new Runnable() {
+                private float hue = 0f;
+
+                @Override
+                public void run() {
+                    synchronized (RingController.this) {
+                        if (generation != animationGeneration) return;
+                        try {
+                            int fullColor = Color.HSVToColor(new float[]{hue, 1f, 1f});
+                            int hwColor = scaleRgb(fullColor, requestedBrightness);
+                            apply(effectPure, 255, hwColor, true);
+                            hue += 5f;
+                            if (hue >= 360f) hue -= 360f;
+                        } catch (Throwable t) {
+                            lastAnimationError = rootMessage(t);
+                            stopSoftwareRainbowLocked();
+                        }
+                    }
+                }
+            }, 0, 40, TimeUnit.MILLISECONDS);
+
+            return "SOFTWARE RAINBOW STARTED: brightness=" + brightness + " (RGB-scaled, 25 fps)";
+        } catch (Throwable t) {
+            return "SOFTWARE RAINBOW ERROR: " + rootMessage(t);
         }
     }
 
     synchronized String off() {
         try {
+            stopSoftwareRainbowLocked();
             if (sessionOpen) {
                 invoke(closeSession, lightsService, sessionToken);
                 sessionOpen = false;
             }
-            return "OFF OK (lights session closed)";
+            return "OFF OK (animation stopped, lights session closed)";
         } catch (Throwable t) {
             sessionOpen = false;
             return "OFF ERROR: " + rootMessage(t);
+        }
+    }
+
+    private void stopSoftwareRainbowLocked() {
+        animationGeneration++;
+        if (softwareRainbowTask != null) {
+            softwareRainbowTask.cancel(false);
+            softwareRainbowTask = null;
         }
     }
 
@@ -121,9 +185,6 @@ final class RingController {
         Class<?> lightsManagerClass = Class.forName("android.hardware.lights.LightsManager");
         lightStateClass = Class.forName("android.hardware.lights.LightState");
 
-        // Meizu 21 / Flyme 12 exposes these as vendor framework extensions.
-        // The stock APK resolves them reflectively too. Search a few logical owners
-        // so minor Flyme framework reshuffles do not make diagnostics useless.
         breatheType = staticIntAny("LIGHT_TYPE_BREATHE", lightClass, lightsManagerClass);
         sessionPriority = staticIntAny("SESSION_PRIORITY_FLASHLIGHT", lightClass, lightsManagerClass);
         effectPure = staticIntAny("EFFECT_ID_PURE", lightStateClass, lightClass);
@@ -174,6 +235,14 @@ final class RingController {
         Object states = Array.newInstance(lightStateClass, 1);
         Array.set(states, 0, state);
         invoke(setLightStates, lightsService, sessionToken, new int[]{ringLightId}, states);
+    }
+
+    private static int scaleRgb(int argb, int brightness) {
+        brightness = clamp(brightness, 0, 255);
+        int r = (((argb >> 16) & 0xFF) * brightness + 127) / 255;
+        int g = (((argb >> 8) & 0xFF) * brightness + 127) / 255;
+        int b = ((argb & 0xFF) * brightness + 127) / 255;
+        return Color.argb(255, r, g, b);
     }
 
     private static Method findMethod(Class<?> cls, String name, int paramCount) throws NoSuchMethodException {
