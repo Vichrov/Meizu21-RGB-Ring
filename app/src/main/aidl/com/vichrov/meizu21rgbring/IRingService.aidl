@@ -20,5 +20,9 @@ interface IRingService {
     String startStockEffect(int effect, int argb, int priority);
     String stopStockEffect();
 
+    String runAutomaticMusicCapture();
+    String testBrightnessArray(int pattern, int argb);
+    String stopBrightnessArrayTest();
+
     String off();
 }
