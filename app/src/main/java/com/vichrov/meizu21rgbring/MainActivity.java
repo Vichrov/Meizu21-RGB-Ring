@@ -26,6 +26,7 @@ public final class MainActivity extends Activity {
     private TextView status;
     private View preview;
     private SeekBar red, green, blue, brightness;
+    private SeekBar awStrength, awAmplitude;
     private SeekBar ledIndex, ledBrightness;
     private TextView ledIndexLabel;
 
@@ -34,7 +35,7 @@ public final class MainActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(3)
+            .version(4)
             .debuggable(true);
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
@@ -98,9 +99,8 @@ public final class MainActivity extends Activity {
         root.setPadding(pad, dp(28), pad, pad);
         root.setBackgroundColor(Color.rgb(250, 250, 250));
 
-        TextView title = text("Meizu 21 RGB Ring", 26, true);
-        root.addView(title);
-        TextView sub = text("v0.3 segment test — Flyme Lights + AW20072 16-LED experiment", 14, false);
+        root.addView(text("Meizu 21 RGB Ring", 26, true));
+        TextView sub = text("v0.4 aw_light Binder test — Shizuku + Flyme vendor effects", 14, false);
         sub.setPadding(0, dp(4), 0, dp(18));
         root.addView(sub);
 
@@ -129,10 +129,6 @@ public final class MainActivity extends Activity {
         brightness.setOnSeekBarChangeListener(previewListener);
         updatePreview();
 
-        TextView note = text("High-level PURE and RAINBOW use the same Flyme Lights API as the previous builds.", 12, false);
-        note.setPadding(0, dp(4), 0, dp(10));
-        root.addView(note);
-
         Button apply = button("Apply selected color (whole ring)");
         apply.setOnClickListener(v -> call(service -> service.setPureColor(selectedColor(), brightness.getProgress())));
         root.addView(apply);
@@ -145,15 +141,49 @@ public final class MainActivity extends Activity {
         softwareRainbow.setOnClickListener(v -> call(service -> service.startSoftwareRainbow(brightness.getProgress())));
         root.addView(softwareRainbow);
 
-        TextView section = text("Experimental 16-LED control", 20, true);
+        TextView awSection = text("Meizu aw_light Binder", 20, true);
+        awSection.setPadding(0, dp(24), 0, dp(8));
+        root.addView(awSection);
+
+        TextView awNote = text("This path asks the vendor aw_light service to render the 16 LEDs itself. It does not access /sys and may therefore work with ordinary ADB-shell Shizuku.", 12, false);
+        awNote.setPadding(0, 0, 0, dp(8));
+        root.addView(awNote);
+
+        Button awDiag = button("3. aw_light Binder diagnostics");
+        awDiag.setOnClickListener(v -> call(IRingService::awDiagnostics));
+        root.addView(awDiag);
+
+        awStrength = addSlider(root, "aw_light strength (0..100%)", 100, 100);
+        awAmplitude = addSlider(root, "Music amplitude (0..60)", 60, 60);
+
+        Button effect30 = button("Effect 30 — 16-segment multicolor pulse");
+        effect30.setOnClickListener(v -> call(service -> service.startAwEffect(
+                30, selectedColor(), awStrength.getProgress(), awAmplitude.getProgress(), 0)));
+        root.addView(effect30);
+
+        Button effect32 = button("Effect 32 — vendor rainbow");
+        effect32.setOnClickListener(v -> call(service -> service.startAwEffect(
+                32, selectedColor(), awStrength.getProgress(), awAmplitude.getProgress(), 0)));
+        root.addView(effect32);
+
+        Button effect38 = button("Effect 38 — 16-color music-style rotation");
+        effect38.setOnClickListener(v -> call(service -> service.startAwEffect(
+                38, selectedColor(), awStrength.getProgress(), awAmplitude.getProgress(), 0)));
+        root.addView(effect38);
+
+        Button awStop = button("Stop aw_light effect");
+        awStop.setOnClickListener(v -> call(IRingService::stopAwEffect));
+        root.addView(awStop);
+
+        TextView section = text("Direct AW20072 frame (root/Sui experiment)", 20, true);
         section.setPadding(0, dp(24), 0, dp(8));
         root.addView(section);
 
-        TextView lowNote = text("Meizu's AW20072 implementation exposes 16 logical RGB LEDs through a 96-byte frame. First run diagnostics; direct frame writes may be blocked by Flyme/SELinux for ADB-shell Shizuku.", 12, false);
+        TextView lowNote = text("Your ADB-shell test cannot access /sys/class/leds, so the controls below are expected to fail without stronger privileges. Kept for future Sui/root testing.", 12, false);
         lowNote.setPadding(0, 0, 0, dp(8));
         root.addView(lowNote);
 
-        Button sysfsDiag = button("3. AW20072 / 16-LED diagnostics");
+        Button sysfsDiag = button("AW20072 / 16-LED sysfs diagnostics");
         sysfsDiag.setOnClickListener(v -> call(IRingService::sysfsDiagnostics));
         root.addView(sysfsDiag);
 
@@ -169,21 +199,21 @@ public final class MainActivity extends Activity {
 
         ledBrightness = addSlider(root, "Per-LED hardware brightness (0..60)", 60, 20);
 
-        Button oneLed = button("Light ONLY selected LED");
+        Button oneLed = button("Light ONLY selected LED (root/Sui)");
         oneLed.setOnClickListener(v -> call(service -> service.setSingleLed(
                 ledIndex.getProgress(), selectedColor(), ledBrightness.getProgress())));
         root.addView(oneLed);
 
-        Button allLeds = button("Light all 16 LEDs with selected color");
+        Button allLeds = button("Light all 16 LEDs (root/Sui)");
         allLeds.setOnClickListener(v -> call(service -> service.setAllLeds(
                 selectedColor(), ledBrightness.getProgress())));
         root.addView(allLeds);
 
-        Button spin = button("3-color rotating 16-LED test");
+        Button spin = button("3-color raw-frame spin (root/Sui)");
         spin.setOnClickListener(v -> call(service -> service.startThreeColorSpin(ledBrightness.getProgress())));
         root.addView(spin);
 
-        Button clear = button("Clear low-level 16-LED frame");
+        Button clear = button("Clear raw 16-LED frame");
         clear.setOnClickListener(v -> call(IRingService::clearLedFrame));
         root.addView(clear);
 
