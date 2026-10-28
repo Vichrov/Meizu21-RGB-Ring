@@ -12,5 +12,9 @@ interface IRingService {
     String startThreeColorSpin(int brightness);
     String clearLedFrame();
 
+    String awDiagnostics();
+    String startAwEffect(int effect, int argb, int strengthPercent, int amplitude, int progress);
+    String stopAwEffect();
+
     String off();
 }
