@@ -10,8 +10,8 @@ android {
         applicationId 'com.vichrov.meizu21rgbring'
         minSdk 31
         targetSdk 35
-        versionCode 3
-        versionName '0.3-segment-test'
+        versionCode 4
+        versionName '0.4-aw-binder-test'
     }
 
     buildFeatures {
