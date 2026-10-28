@@ -3,6 +3,7 @@ package com.vichrov.meizu21rgbring;
 /** Runs in Shizuku/Sui's shell/root process. */
 public final class RingUserService extends IRingService.Stub {
     private RingController controller;
+    private final AwBinderController awController = new AwBinderController();
     private String initError;
 
     public RingUserService() {
@@ -68,8 +69,24 @@ public final class RingUserService extends IRingService.Stub {
     }
 
     @Override
+    public String awDiagnostics() {
+        return awController.diagnostics();
+    }
+
+    @Override
+    public String startAwEffect(int effect, int argb, int strengthPercent, int amplitude, int progress) {
+        return awController.startEffect(effect, argb, strengthPercent, amplitude, progress);
+    }
+
+    @Override
+    public String stopAwEffect() {
+        return awController.stop();
+    }
+
+    @Override
     public String off() {
-        if (controller == null) return "INIT ERROR: " + initError;
-        return controller.off();
+        String aw = awController.stop();
+        if (controller == null) return "INIT ERROR: " + initError + "\n" + aw;
+        return controller.off() + "\n" + aw;
     }
 }
