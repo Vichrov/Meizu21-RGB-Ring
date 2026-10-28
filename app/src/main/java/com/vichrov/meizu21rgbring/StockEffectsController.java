@@ -25,6 +25,7 @@ final class StockEffectsController {
     private final IBinder token = new Binder();
     private Object service;
     private Method getLights;
+    private Method getLightState;
     private Method openSession;
     private Method closeSession;
     private Method setLightStates;
@@ -69,6 +70,8 @@ final class StockEffectsController {
             appendMethods(out, "LightState.Builder methods", builder);
             appendMethods(out, "LightsManager methods", manager);
             appendMethods(out, "ILightsManager methods", iface);
+
+            appendLiveStateProbe(out);
         } catch (Throwable t) {
             out.append("ERROR: ").append(rootMessage(t)).append('\n');
         }
@@ -128,6 +131,7 @@ final class StockEffectsController {
 
         Class<?> iface = Class.forName("android.hardware.lights.ILightsManager");
         getLights = findMethod(iface, "getLights", 0);
+        getLightState = findMethod(iface, "getLightState", 1);
         openSession = findMethod(iface, "openSession", 2);
         closeSession = findMethod(iface, "closeSession", 1);
         setLightStates = findMethod(iface, "setLightStates", 3);
@@ -162,6 +166,91 @@ final class StockEffectsController {
         invoke(openSession, service, token, priority);
         sessionOpen = true;
         openPriority = priority;
+    }
+
+    /**
+     * Samples the real vendor LightState for one second. This is intentionally done from the
+     * Shizuku UserService so hidden Flyme getters are visible. Start the stock music preview,
+     * then run diagnostics while it is still playing. If Flyme publishes its visualizer data
+     * through LightState, brightnessArray/percent/playerId changes will appear here.
+     */
+    private void appendLiveStateProbe(StringBuilder out) {
+        out.append("\nLive LightState probe (20 samples / ~1 s):\n");
+        if (getLightState == null || service == null || ringLightId < 0) {
+            out.append("  unavailable\n");
+            return;
+        }
+        String last = null;
+        int changes = 0;
+        int printed = 0;
+        try {
+            for (int i = 0; i < 20; i++) {
+                Object state = invoke(getLightState, service, ringLightId);
+                String now = describeState(state);
+                if (!now.equals(last)) {
+                    changes++;
+                    if (printed < 12) {
+                        out.append("  [").append(i).append("] ").append(now).append('\n');
+                        printed++;
+                    }
+                    last = now;
+                }
+                if (i != 19) Thread.sleep(50);
+            }
+            out.append("  state changes observed = ").append(changes).append('\n');
+            if (changes > printed) out.append("  (additional changes omitted)\n");
+        } catch (Throwable t) {
+            out.append("  PROBE ERROR: ").append(rootMessage(t)).append('\n');
+        }
+    }
+
+    private static String describeState(Object state) {
+        if (state == null) return "<null>";
+        StringBuilder s = new StringBuilder();
+        try { s.append("effect=").append(callNumber(state, "getEffectId")); }
+        catch (Throwable t) { s.append("effect=?"); }
+        try { s.append(" color=").append(String.format("#%08X", callNumber(state, "getColor").intValue())); }
+        catch (Throwable ignored) {}
+        try { s.append(" brightness=").append(callNumber(state, "getBrightness")); }
+        catch (Throwable ignored) {}
+        try { s.append(" percent=").append(callNumber(state, "getPercent")); }
+        catch (Throwable ignored) {}
+        try { s.append(" playerId=").append(callNumber(state, "getPlayerId")); }
+        catch (Throwable ignored) {}
+        try {
+            Method m = findMethod(state.getClass(), "getSemaphoreLetter", 0);
+            Object v = invoke(m, state);
+            if (v instanceof Character) {
+                char c = (Character) v;
+                s.append(" semaphore=").append((int) c);
+                if (c >= 32 && c <= 126) s.append("('").append(c).append("')");
+            }
+        } catch (Throwable ignored) {}
+        try {
+            Method m = findMethod(state.getClass(), "getBrightnessArray", 0);
+            Object array = invoke(m, state);
+            if (array instanceof List) {
+                List<?> list = (List<?>) array;
+                s.append(" brightnessArray(size=").append(list.size()).append(")=");
+                int limit = Math.min(list.size(), 64);
+                s.append('[');
+                for (int i = 0; i < limit; i++) {
+                    if (i > 0) s.append(',');
+                    s.append(String.valueOf(list.get(i)));
+                }
+                if (list.size() > limit) s.append(",...");
+                s.append(']');
+            } else {
+                s.append(" brightnessArray=null");
+            }
+        } catch (Throwable ignored) {}
+        return s.toString();
+    }
+
+    private static Number callNumber(Object target, String name) throws Exception {
+        Object value = invoke(findMethod(target.getClass(), name, 0), target);
+        if (!(value instanceof Number)) throw new IllegalStateException(name + " is not numeric");
+        return (Number) value;
     }
 
     private static void appendIntConstants(StringBuilder out, String title, Class<?> cls, String prefix) {
