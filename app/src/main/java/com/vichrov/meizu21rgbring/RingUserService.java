@@ -4,6 +4,7 @@ package com.vichrov.meizu21rgbring;
 public final class RingUserService extends IRingService.Stub {
     private RingController controller;
     private final AwBinderController awController = new AwBinderController();
+    private final StockEffectsController stockController = new StockEffectsController();
     private String initError;
 
     public RingUserService() {
@@ -22,18 +23,21 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setPureColor(int argb, int brightness) {
+        stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setPureColor(argb, brightness);
     }
 
     @Override
     public String setRainbow(int brightness) {
+        stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setRainbow(brightness);
     }
 
     @Override
     public String startSoftwareRainbow(int brightness) {
+        stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.startSoftwareRainbow(brightness);
     }
@@ -46,18 +50,21 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setSingleLed(int index, int argb, int brightness) {
+        stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setSingleLed(index, argb, brightness);
     }
 
     @Override
     public String setAllLeds(int argb, int brightness) {
+        stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.setAllLeds(argb, brightness);
     }
 
     @Override
     public String startThreeColorSpin(int brightness) {
+        stockController.stop();
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.startThreeColorSpin(brightness);
     }
@@ -84,9 +91,27 @@ public final class RingUserService extends IRingService.Stub {
     }
 
     @Override
+    public String stockDiagnostics() {
+        return stockController.diagnostics();
+    }
+
+    @Override
+    public String startStockEffect(int effect, int argb, int priority) {
+        awController.stop();
+        if (controller != null) controller.off();
+        return stockController.setEffect(effect, argb, priority);
+    }
+
+    @Override
+    public String stopStockEffect() {
+        return stockController.stop();
+    }
+
+    @Override
     public String off() {
         String aw = awController.stop();
-        if (controller == null) return "INIT ERROR: " + initError + "\n" + aw;
-        return controller.off() + "\n" + aw;
+        String stock = stockController.stop();
+        if (controller == null) return "INIT ERROR: " + initError + "\n" + aw + "\n" + stock;
+        return controller.off() + "\n" + aw + "\n" + stock;
     }
 }
