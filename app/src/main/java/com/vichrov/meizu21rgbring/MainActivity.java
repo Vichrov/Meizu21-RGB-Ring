@@ -35,7 +35,7 @@ public final class MainActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(4)
+            .version(6)
             .debuggable(true);
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
@@ -100,7 +100,7 @@ public final class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250, 250, 250));
 
         root.addView(text("Meizu 21 RGB Ring", 26, true));
-        TextView sub = text("v0.4 aw_light Binder test — Shizuku + Flyme vendor effects", 14, false);
+        TextView sub = text("v0.6 live LightState probe — stock Flyme effects + music light", 14, false);
         sub.setPadding(0, dp(4), 0, dp(18));
         root.addView(sub);
 
@@ -141,37 +141,37 @@ public final class MainActivity extends Activity {
         softwareRainbow.setOnClickListener(v -> call(service -> service.startSoftwareRainbow(brightness.getProgress())));
         root.addView(softwareRainbow);
 
-        TextView awSection = text("Meizu aw_light Binder", 20, true);
+        TextView awSection = text("Stock Flyme effects / music light", 20, true);
         awSection.setPadding(0, dp(24), 0, dp(8));
         root.addView(awSection);
 
-        TextView awNote = text("This path asks the vendor aw_light service to render the 16 LEDs itself. It does not access /sys and may therefore work with ordinary ADB-shell Shizuku.", 12, false);
+        TextView awNote = text("Recovered from your stock Settings/framework. Effect 38 starts the exact light_preview_music playback path. While it is running, press diagnostics to sample the live LightState including brightnessArray, percent, playerId and semaphore letter.", 12, false);
         awNote.setPadding(0, 0, 0, dp(8));
         root.addView(awNote);
 
-        Button awDiag = button("3. aw_light Binder diagnostics");
+        Button awDiag = button("3. Stock Flyme diagnostics + live state probe");
         awDiag.setOnClickListener(v -> call(IRingService::awDiagnostics));
         root.addView(awDiag);
 
-        awStrength = addSlider(root, "aw_light strength (0..100%)", 100, 100);
-        awAmplitude = addSlider(root, "Music amplitude (0..60)", 60, 60);
+        awStrength = addSlider(root, "Reserved strength test (0..100%)", 100, 100);
+        awAmplitude = addSlider(root, "Reserved music amplitude test (0..60)", 60, 60);
 
-        Button effect30 = button("Effect 30 — 16-segment multicolor pulse");
+        Button effect30 = button("Effect 30 — AICY_WAKE");
         effect30.setOnClickListener(v -> call(service -> service.startAwEffect(
                 30, selectedColor(), awStrength.getProgress(), awAmplitude.getProgress(), 0)));
         root.addView(effect30);
 
-        Button effect32 = button("Effect 32 — vendor rainbow");
+        Button effect32 = button("Effect 32 — native rainbow");
         effect32.setOnClickListener(v -> call(service -> service.startAwEffect(
                 32, selectedColor(), awStrength.getProgress(), awAmplitude.getProgress(), 0)));
         root.addView(effect32);
 
-        Button effect38 = button("Effect 38 — 16-color music-style rotation");
+        Button effect38 = button("Effect 38 — stock music-light preview (12 s)");
         effect38.setOnClickListener(v -> call(service -> service.startAwEffect(
                 38, selectedColor(), awStrength.getProgress(), awAmplitude.getProgress(), 0)));
         root.addView(effect38);
 
-        Button awStop = button("Stop aw_light effect");
+        Button awStop = button("Stop stock effect / music preview");
         awStop.setOnClickListener(v -> call(IRingService::stopAwEffect));
         root.addView(awStop);
 
@@ -179,7 +179,7 @@ public final class MainActivity extends Activity {
         section.setPadding(0, dp(24), 0, dp(8));
         root.addView(section);
 
-        TextView lowNote = text("Your ADB-shell test cannot access /sys/class/leds, so the controls below are expected to fail without stronger privileges. Kept for future Sui/root testing.", 12, false);
+        TextView lowNote = text("ADB-shell cannot access /sys/class/leds on your stock Flyme, so these controls are expected to fail without root/Sui. Kept for future low-level testing.", 12, false);
         lowNote.setPadding(0, 0, 0, dp(8));
         root.addView(lowNote);
 
