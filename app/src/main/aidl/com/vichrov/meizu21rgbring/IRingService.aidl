@@ -5,5 +5,12 @@ interface IRingService {
     String setPureColor(int argb, int brightness);
     String setRainbow(int brightness);
     String startSoftwareRainbow(int brightness);
+
+    String sysfsDiagnostics();
+    String setSingleLed(int index, int argb, int brightness);
+    String setAllLeds(int argb, int brightness);
+    String startThreeColorSpin(int brightness);
+    String clearLedFrame();
+
     String off();
 }
