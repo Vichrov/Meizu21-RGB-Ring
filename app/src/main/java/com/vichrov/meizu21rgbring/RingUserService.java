@@ -32,6 +32,12 @@ public final class RingUserService extends IRingService.Stub {
     }
 
     @Override
+    public String startSoftwareRainbow(int brightness) {
+        if (controller == null) return "INIT ERROR: " + initError;
+        return controller.startSoftwareRainbow(brightness);
+    }
+
+    @Override
     public String off() {
         if (controller == null) return "INIT ERROR: " + initError;
         return controller.off();
