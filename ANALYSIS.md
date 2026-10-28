@@ -107,11 +107,43 @@ The recovered preview playback attributes are:
 
 This indicates that a system-side Flyme component observes tagged/eligible music playback and drives the multi-segment ring itself. v0.5 reproduces this playback path with a short pulsing test tone, allowing the genuine stock music-light pipeline to be tested without guessing a vendor Binder ABI.
 
-## Next framework targets
+## Stock framework.jar findings
 
-The uploaded archive contains product/system_ext/vendor framework directories and optimized artifacts for Flyme runtime, but not the two most useful original JARs. The next files to inspect are:
+The original `/system/framework/framework.jar` from the tested phone has now been inspected directly. Flyme extends `android.hardware.lights.LightState` substantially beyond AOSP.
 
-- `/system/framework/framework.jar`
-- `/apex/com.flyme.runtime/javalib/service-flyme.jar`
+`LightState` instance fields include:
 
-These should help recover the full vendor `LightState` effect catalogue and the system-side music-light observer/renderer.
+- `mColor`
+- `mPlayerId`
+- `mEffectId`
+- `mPercent`
+- `mBrightness`
+- `mBrightnessArray`
+- `mSemaphoreLetter`
+
+`LightState.Builder` exposes:
+
+- `setColor(int)`
+- `setPlayerId(int)`
+- `setEffectId(int)`
+- `setPercent(int)`
+- `setBrightness(int)`
+- `setBrightnessArray(ArrayList)`
+- `setSemaphoreLetter(char)`
+
+The parcel constructor explicitly reads `mBrightnessArray` as an `ArrayList<Integer>`, confirming that it is a real typed integer array transported across Binder, not a debug-only field. The parcel order is colour, player ID, effect ID, percent, brightness, brightness-array, semaphore letter.
+
+This is the strongest non-root lead for independent/segment-level control so far. It is not yet proven that the array maps one-to-one to the 16 physical LEDs, but the field is present in the exact stock framework and can be observed through `ILightsManager.getLightState(int)`.
+
+The same framework also exposes:
+
+- `getLightState(int)`
+- `getLightEffectDuration(int)`
+- `registerFlymeBreatheLightListener(...)`
+- `unRegisterFlymeBreatheLightListener(...)`
+
+v0.6 therefore samples the live vendor `LightState` for about one second whenever the stock diagnostics button is pressed. The intended test is to start the genuine `light_preview_music` path, then immediately run diagnostics. If Flyme publishes music visualizer data through `brightnessArray`, `percent`, or `playerId`, the changing values should be visible directly.
+
+## Flyme runtime optimized artifacts
+
+The uploaded framework archive also contains optimized artifacts for `service-flyme.jar` (`.odex` plus matching `.vdex`). The ODEX contains native AOT code and the VDEX on this build is small and does not expose the original class/string table in a directly readable form. The original `/apex/com.flyme.runtime/javalib/service-flyme.jar` would still be the cleanest way to inspect the system-side music-light renderer if it can be pulled later.
