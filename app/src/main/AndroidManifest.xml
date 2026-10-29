@@ -17,7 +17,7 @@
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity
-            android:name=".Color38Activity"
+            android:name=".ExperimentalActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -26,7 +26,7 @@
         </activity>
 
         <activity
-            android:name=".ExperimentalActivity"
+            android:name=".Color38Activity"
             android:exported="false" />
 
         <activity
