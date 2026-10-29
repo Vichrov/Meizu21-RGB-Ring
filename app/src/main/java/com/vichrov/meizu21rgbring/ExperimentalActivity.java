@@ -16,7 +16,7 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** v1.3.1: direct vendor.meizu.hardware.aw_light@1.0 HIDL tests. */
+/** v1.3.2: direct vendor.meizu.hardware.aw_light@1.0 HIDL tests. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
@@ -27,13 +27,13 @@ public final class ExperimentalActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(14)
+            .version(15)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = IRingService.Stub.asInterface(binder);
-            append("UserService connected.\nReady for direct HIDL tests.");
+            append("UserService connected.\nReady for direct HIDL tests.\nv1.3.2 uses the exact stock IAwLight.getService(true) path.");
         }
         @Override public void onServiceDisconnected(ComponentName name) {
             service = null;
@@ -71,13 +71,13 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v1.3.1 Direct HIDL");
+        title.setText("Meizu 21 RGB Ring — v1.3.2 Direct HIDL");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("Bypass Android LightState and call stock vendor.meizu.hardware.aw_light@1.0::IAwLight directly from the Shizuku shell process. We can control command order: switchEffect, color_set_phase(R,G,B), music_phase(20 values), start/stop.");
+        note.setText("Direct vendor.meizu.hardware.aw_light@1.0::IAwLight test. Fix: stock LightsService calls IAwLight.getService(true); v1.3 incorrectly tried false first and failed before reaching the stock path.");
         note.setTextSize(14);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(6), 0, dp(18));
@@ -110,7 +110,7 @@ public final class ExperimentalActivity extends Activity {
         root.addView(button("Stop everything", v -> call(IRingService::off)));
 
         TextView guide = new TextView(this);
-        guide.setText("First run 0. If it reports a CONNECT ERROR, send the full log. If diagnostics succeeds, test 1/1B first: RED and BLUE must change the whole ring if direct color_set_phase works. Then test 2/2B, 3/3B and 4/4B. For each, report whether the selected color is respected, whether a highlighted sector exists/moves, and whether the stock rainbow/music background remains.");
+        guide.setText("First run 0. If diagnostics now says CONNECT OK, test 1/1B and then 4/4B. If it still errors, send the full text exactly as shown.");
         guide.setTextSize(13);
         guide.setTextColor(Color.DKGRAY);
         guide.setPadding(0, dp(18), 0, dp(8));
@@ -172,7 +172,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v131-call").start();
+        }, "ring-v132-call").start();
     }
 
     private void append(String text) {
