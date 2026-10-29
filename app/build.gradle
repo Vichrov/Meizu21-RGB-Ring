@@ -10,8 +10,8 @@ android {
         applicationId 'com.vichrov.meizu21rgbring'
         minSdk 31
         targetSdk 35
-        versionCode 12
-        versionName '1.2-effect38-forced-color'
+        versionCode 13
+        versionName '1.3-direct-hidl'
     }
 
     buildFeatures {
