@@ -16,7 +16,7 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** v1.3: direct vendor.meizu.hardware.aw_light@1.0 HIDL tests. */
+/** v1.3.1: direct vendor.meizu.hardware.aw_light@1.0 HIDL tests. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
@@ -27,7 +27,7 @@ public final class ExperimentalActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(13)
+            .version(14)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
@@ -71,7 +71,7 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v1.3 Direct HIDL");
+        title.setText("Meizu 21 RGB Ring — v1.3.1 Direct HIDL");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
@@ -172,7 +172,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v13-call").start();
+        }, "ring-v131-call").start();
     }
 
     private void append(String text) {
