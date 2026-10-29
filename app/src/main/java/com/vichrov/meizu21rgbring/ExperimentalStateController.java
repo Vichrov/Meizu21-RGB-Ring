@@ -10,16 +10,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Experimental Flyme LightState controller reconstructed from the stock framework/services.jar.
+ * Experimental Flyme LightState controller reconstructed from stock framework/services.jar.
  *
- * Stock AudioVisualizerHander builds exactly 20 Integer brightness values and sends them as:
- *  - effect 38: setEffectId(38) + setBrightnessArray(values)
- *  - effect 64: setEffectId(64) + setColor(color) + setBrightnessArray(values)
- * It does NOT set percent or the high-level brightness field for these frames.
+ * Stock music paths use exactly 20 Integer brightness/phase values:
+ *  - effect 38: MUSIC, setEffectId(38) + setBrightnessArray(values)
+ *  - effect 50: IN_CALL_MUSIC, setEffectId(50) + setColor(color) + setBrightnessArray(values)
+ *  - effect 64: IN_CALL_MUSIC_PREVIEW, setEffectId(64) + setColor(color) + setBrightnessArray(values)
+ *
+ * No setBrightness() or setPercent() is used for these frames.
  */
 final class ExperimentalStateController {
     private static final int PRIORITY = 10009;
     private static final int MUSIC_EFFECT = 38;
+    private static final int IN_CALL_MUSIC_EFFECT = 50;
     private static final int INCALL_MUSIC_PREVIEW_EFFECT = 64;
     private static final int PHASE_COUNT = 20;
     private static final int PHASE_LEVEL = 60;
@@ -69,11 +72,19 @@ final class ExperimentalStateController {
     }
 
     /**
-     * Pattern ids:
-     * 0..3  -> effect 38 static patterns
-     * 10..13 -> effect 64 static patterns with caller-selected color
-     * 20 -> moving one-hot, effect 38
-     * 30 -> moving one-hot, effect 64 + selected color
+     * Pattern ids used by the experimental UI:
+     *   0..3   -> effect 38 static patterns
+     *   10..13 -> effect 64 static patterns with caller color
+     *   20     -> effect 38 moving one-hot
+     *   30     -> effect 64 moving one-hot + caller color
+     *   40     -> effect 50 one-hot index 0
+     *   41     -> effect 50 one-hot index 5
+     *   42     -> effect 50 one-hot index 10
+     *   43     -> effect 50 one-hot index 15
+     *   44     -> effect 50 one-hot index 19
+     *   50     -> effect 50 moving one-hot + caller color
+     *   51     -> effect 50 alternating 60/0 + caller color
+     *   52     -> effect 50 all 20 = 60 + caller color
      */
     synchronized String setBrightnessPattern(int pattern, int argb) {
         try {
@@ -83,6 +94,28 @@ final class ExperimentalStateController {
 
             if (pattern == 20) return startSweepLocked(MUSIC_EFFECT, argb);
             if (pattern == 30) return startSweepLocked(INCALL_MUSIC_PREVIEW_EFFECT, argb);
+            if (pattern == 50) return startSweepLocked(IN_CALL_MUSIC_EFFECT, argb);
+
+            if (pattern >= 40 && pattern <= 44) {
+                int[] positions = {0, 5, 10, 15, 19};
+                int index = positions[pattern - 40];
+                ArrayList<Integer> values = oneHot(index);
+                sendState(IN_CALL_MUSIC_EFFECT, argb, values);
+                return sentText(IN_CALL_MUSIC_EFFECT, argb, values,
+                        "one-hot index=" + index);
+            }
+
+            if (pattern == 51) {
+                ArrayList<Integer> values = buildPattern(1);
+                sendState(IN_CALL_MUSIC_EFFECT, argb, values);
+                return sentText(IN_CALL_MUSIC_EFFECT, argb, values, "alternating 60/0");
+            }
+
+            if (pattern == 52) {
+                ArrayList<Integer> values = buildPattern(3);
+                sendState(IN_CALL_MUSIC_EFFECT, argb, values);
+                return sentText(IN_CALL_MUSIC_EFFECT, argb, values, "all 20 = 60");
+            }
 
             int effect = pattern >= 10 ? INCALL_MUSIC_PREVIEW_EFFECT : MUSIC_EFFECT;
             int basePattern = pattern >= 10 ? pattern - 10 : pattern;
@@ -90,14 +123,25 @@ final class ExperimentalStateController {
             if (values == null) return "20-PHASE ERROR: unknown pattern " + pattern;
 
             sendState(effect, argb, values);
-            return "20-PHASE SENT: effect=" + effect
-                    + " count=" + values.size()
-                    + " color=" + String.format("#%08X", argb)
-                    + " values=" + values
-                    + "\nNote: stock AudioVisualizer uses exactly 20 Integer values and no setBrightness/setPercent.";
+            return sentText(effect, argb, values, "static pattern=" + basePattern);
         } catch (Throwable t) {
             return "20-PHASE ERROR: " + rootMessage(t);
         }
+    }
+
+    private String sentText(int effect, int argb, ArrayList<Integer> values, String description) {
+        return "20-PHASE SENT: effect=" + effect
+                + " " + description
+                + " count=" + values.size()
+                + " color=" + String.format("#%08X", argb)
+                + " values=" + values
+                + "\nExact Flyme-style frame: effect + 20 Integer phase values; no setBrightness/setPercent.";
+    }
+
+    private ArrayList<Integer> oneHot(int index) {
+        ArrayList<Integer> values = new ArrayList<>(PHASE_COUNT);
+        for (int i = 0; i < PHASE_COUNT; i++) values.add(i == index ? PHASE_LEVEL : 0);
+        return values;
     }
 
     private ArrayList<Integer> buildPattern(int pattern) {
@@ -122,8 +166,7 @@ final class ExperimentalStateController {
             int index = 0;
             try {
                 while (!stopAnimation) {
-                    ArrayList<Integer> values = new ArrayList<>(PHASE_COUNT);
-                    for (int i = 0; i < PHASE_COUNT; i++) values.add(i == index ? PHASE_LEVEL : 0);
+                    ArrayList<Integer> values = oneHot(index);
                     synchronized (ExperimentalStateController.this) {
                         if (stopAnimation) break;
                         sendState(effect, argb, values);
@@ -139,14 +182,14 @@ final class ExperimentalStateController {
         return "20-PHASE SWEEP STARTED: effect=" + effect
                 + " count=20 one-hot level=" + PHASE_LEVEL
                 + " color=" + String.format("#%08X", argb)
-                + " step=120ms";
+                + " step=120ms full-cycle=2.4s";
     }
 
     private void sendState(int effect, int argb, ArrayList<Integer> values) throws Exception {
         Class<?> builderClass = Class.forName("android.hardware.lights.LightState$Builder");
         Object builder = builderClass.getDeclaredConstructor().newInstance();
         invoke(findMethod(builderClass, "setEffectId", 1), builder, effect);
-        if (effect == INCALL_MUSIC_PREVIEW_EFFECT) {
+        if (effect == IN_CALL_MUSIC_EFFECT || effect == INCALL_MUSIC_PREVIEW_EFFECT) {
             invoke(findMethod(builderClass, "setColor", 1), builder, argb);
         }
         invoke(findMethod(builderClass, "setBrightnessArray", 1), builder, values);
