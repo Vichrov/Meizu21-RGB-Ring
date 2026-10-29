@@ -16,25 +16,24 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** v1.0: tests reconstructed directly from stock services.jar AudioVisualizerHander/LightsService. */
+/** v1.1: effect 50 IN_CALL_MUSIC spatial/color tests recovered from stock services.jar. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
     private TextView log;
-    private AppRingtonePreviewController appMusicPreview;
 
     private final Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(
             new ComponentName("com.vichrov.meizu21rgbring", RingUserService.class.getName()))
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(10)
+            .version(11)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = IRingService.Stub.asInterface(binder);
-            append("UserService connected.\nReady for stock 20-phase tests.");
+            append("UserService connected.\nReady for effect 50 tests.");
         }
         @Override public void onServiceDisconnected(ComponentName name) {
             service = null;
@@ -52,7 +51,6 @@ public final class ExperimentalActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        appMusicPreview = new AppRingtonePreviewController(this);
         setContentView(buildUi());
         Shizuku.addBinderReceivedListenerSticky(binderListener);
         Shizuku.addRequestPermissionResultListener(permissionListener);
@@ -60,7 +58,6 @@ public final class ExperimentalActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        if (appMusicPreview != null) appMusicPreview.stop();
         Shizuku.removeBinderReceivedListener(binderListener);
         Shizuku.removeRequestPermissionResultListener(permissionListener);
         super.onDestroy();
@@ -74,13 +71,13 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v1.0");
+        title.setText("Meizu 21 RGB Ring — v1.1");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("Recovered from stock services.jar: AudioVisualizerHander sends exactly 20 Integer values to LightState.setBrightnessArray(). Effect 38 is MUSIC; effect 64 is in-call music preview and also accepts a global color. No setBrightness() or setPercent() is used for these frames.");
+        note.setText("New target: EFFECT_ID_IN_CALL_MUSIC = 50. Stock services.jar uses effect 50 with setColor(color) + exactly 20 brightness/phase values. Test whether it combines the spatial behavior of effect 38 with the selectable RGB behavior of effect 64.");
         note.setTextSize(14);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(6), 0, dp(18));
@@ -88,54 +85,49 @@ public final class ExperimentalActivity extends Activity {
 
         root.addView(button("Connect / grant Shizuku", v -> connect()));
 
-        TextView directTitle = new TextView(this);
-        directTitle.setText("Exact stock 20-phase path");
-        directTitle.setTextSize(19);
-        directTitle.setTextColor(Color.rgb(30,30,30));
-        directTitle.setPadding(0, dp(12), 0, dp(8));
-        root.addView(directTitle);
+        TextView effect50 = new TextView(this);
+        effect50.setText("Effect 50 — fixed positions (RED)");
+        effect50.setTextSize(19);
+        effect50.setTextColor(Color.rgb(30,30,30));
+        effect50.setPadding(0, dp(12), 0, dp(8));
+        root.addView(effect50);
 
-        root.addView(button("1. MUSIC 38 — one hot [60,0…] (20 values)", v -> call(s -> s.testBrightnessArray(0, Color.RED))));
-        root.addView(button("2. MUSIC 38 — moving one-hot sweep", v -> call(s -> s.testBrightnessArray(20, Color.RED))));
-        root.addView(button("3. MUSIC 38 — alternating 60/0", v -> call(s -> s.testBrightnessArray(1, Color.RED))));
-        root.addView(button("4. MUSIC 38 — all 20 = 60", v -> call(s -> s.testBrightnessArray(3, Color.RED))));
+        root.addView(button("1. RED one-hot — phase 0", v -> call(s -> s.testBrightnessArray(40, Color.RED))));
+        root.addView(button("2. RED one-hot — phase 5", v -> call(s -> s.testBrightnessArray(41, Color.RED))));
+        root.addView(button("3. RED one-hot — phase 10", v -> call(s -> s.testBrightnessArray(42, Color.RED))));
+        root.addView(button("4. RED one-hot — phase 15", v -> call(s -> s.testBrightnessArray(43, Color.RED))));
+        root.addView(button("5. RED one-hot — phase 19", v -> call(s -> s.testBrightnessArray(44, Color.RED))));
 
-        TextView colorTitle = new TextView(this);
-        colorTitle.setText("Effect 64: 20-phase + selectable global color");
-        colorTitle.setTextSize(18);
-        colorTitle.setTextColor(Color.rgb(30,30,30));
-        colorTitle.setPadding(0, dp(22), 0, dp(8));
-        root.addView(colorTitle);
+        TextView moving = new TextView(this);
+        moving.setText("Effect 50 — movement / color");
+        moving.setTextSize(19);
+        moving.setTextColor(Color.rgb(30,30,30));
+        moving.setPadding(0, dp(22), 0, dp(8));
+        root.addView(moving);
 
-        root.addView(button("5. Effect 64 RED — one hot", v -> call(s -> s.testBrightnessArray(10, Color.RED))));
-        root.addView(button("6. Effect 64 RED — moving one-hot", v -> call(s -> s.testBrightnessArray(30, Color.RED))));
-        root.addView(button("7. Effect 64 BLUE — moving one-hot", v -> call(s -> s.testBrightnessArray(30, Color.BLUE))));
-        root.addView(button("8. Effect 64 GREEN — alternating", v -> call(s -> s.testBrightnessArray(11, Color.GREEN))));
+        root.addView(button("6. RED moving one-hot (20 phases / 2.4 s)", v -> call(s -> s.testBrightnessArray(50, Color.RED))));
+        root.addView(button("7. BLUE moving one-hot (20 phases / 2.4 s)", v -> call(s -> s.testBrightnessArray(50, Color.BLUE))));
+        root.addView(button("8. GREEN alternating 60/0", v -> call(s -> s.testBrightnessArray(51, Color.GREEN))));
+        root.addView(button("9. RED all 20 = 60", v -> call(s -> s.testBrightnessArray(52, Color.RED))));
 
-        root.addView(button("Stop 20-phase session", v -> call(IRingService::stopBrightnessArrayTest)));
+        TextView control = new TextView(this);
+        control.setText("Control tests from v1.0");
+        control.setTextSize(18);
+        control.setTextColor(Color.rgb(30,30,30));
+        control.setPadding(0, dp(22), 0, dp(8));
+        root.addView(control);
 
-        TextView previewTitle = new TextView(this);
-        previewTitle.setText("Stock preview reference");
-        previewTitle.setTextSize(18);
-        previewTitle.setTextColor(Color.rgb(30,30,30));
-        previewTitle.setPadding(0, dp(22), 0, dp(8));
-        root.addView(previewTitle);
+        root.addView(button("10. MUSIC 38 — moving one-hot reference", v -> call(s -> s.testBrightnessArray(20, Color.RED))));
+        root.addView(button("11. Effect 64 RED — moving one-hot reference", v -> call(s -> s.testBrightnessArray(30, Color.RED))));
+        root.addView(button("Stop phase session", v -> call(IRingService::stopBrightnessArrayTest)));
+        root.addView(button("Stop everything", v -> call(IRingService::off)));
 
-        TextView previewNote = new TextView(this);
-        previewNote.setText("services.jar revealed that light_preview_music is hard-gated to package com.android.settings. Our app can reproduce the Ringtone, but Flyme will not treat our package as the Settings preview. These buttons are kept only as reference.");
-        previewNote.setTextSize(13);
-        previewNote.setTextColor(Color.DKGRAY);
-        previewNote.setPadding(0, 0, 0, dp(8));
-        root.addView(previewNote);
-
-        root.addView(button("Play recovered stock ringtone", v -> append(appMusicPreview.start())));
-        root.addView(button("Probe current stock LightState", v -> call(IRingService::stockDiagnostics)));
-        root.addView(button("Stop ringtone", v -> append(appMusicPreview.stop())));
-
-        root.addView(button("Stop everything", v -> {
-            if (appMusicPreview != null) appMusicPreview.stop();
-            call(IRingService::off);
-        }));
+        TextView guide = new TextView(this);
+        guide.setText("What to report: for 1–5, whether the lit/highlighted area changes position between phase numbers; for 6–7, whether one area travels around the ring and whether RED vs BLUE is respected; for 8, whether alternate phases create a spatial pattern or only global brightness; for 9, whether the whole ring becomes steady red or another built-in animation appears.");
+        guide.setTextSize(13);
+        guide.setTextColor(Color.DKGRAY);
+        guide.setPadding(0, dp(18), 0, dp(8));
+        root.addView(guide);
 
         log = new TextView(this);
         log.setTextSize(12);
@@ -165,11 +157,8 @@ public final class ExperimentalActivity extends Activity {
             append("Shizuku is not running.");
             return;
         }
-        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-            bind();
-        } else {
-            Shizuku.requestPermission(REQ);
-        }
+        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) bind();
+        else Shizuku.requestPermission(REQ);
     }
 
     private void bind() {
@@ -187,7 +176,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v10-call").start();
+        }, "ring-v11-call").start();
     }
 
     private void append(String text) {
