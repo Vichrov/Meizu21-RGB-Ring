@@ -6,6 +6,9 @@ interface IRingService {
     String setRainbow(int brightness);
     String startSoftwareRainbow(int brightness);
 
+    String applyAdvancedState(int effect, int argb, int brightness, int percent, int playerId, int semaphoreCode, int amplitude, int priority);
+    String currentState();
+
     String sysfsDiagnostics();
     String setSingleLed(int index, int argb, int brightness);
     String setAllLeds(int argb, int brightness);
