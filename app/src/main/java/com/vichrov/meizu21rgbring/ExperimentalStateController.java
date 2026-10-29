@@ -9,10 +9,20 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Experimental Flyme LightState probes recovered from the user's stock framework.jar. */
+/**
+ * Experimental Flyme LightState controller reconstructed from the stock framework/services.jar.
+ *
+ * Stock AudioVisualizerHander builds exactly 20 Integer brightness values and sends them as:
+ *  - effect 38: setEffectId(38) + setBrightnessArray(values)
+ *  - effect 64: setEffectId(64) + setColor(color) + setBrightnessArray(values)
+ * It does NOT set percent or the high-level brightness field for these frames.
+ */
 final class ExperimentalStateController {
     private static final int PRIORITY = 10009;
     private static final int MUSIC_EFFECT = 38;
+    private static final int INCALL_MUSIC_PREVIEW_EFFECT = 64;
+    private static final int PHASE_COUNT = 20;
+    private static final int PHASE_LEVEL = 60;
 
     private final IBinder token = new Binder();
     private Object service;
@@ -26,12 +36,15 @@ final class ExperimentalStateController {
     private int ringLightId = -1;
     private boolean sessionOpen;
 
+    private volatile boolean stopAnimation;
+    private Thread animationThread;
+
     ExperimentalStateController() {
         try { initialize(); } catch (Throwable ignored) {}
     }
 
     synchronized String captureState(int samples, int intervalMs) {
-        StringBuilder out = new StringBuilder("Automatic music LightState capture\n");
+        StringBuilder out = new StringBuilder("LightState capture\n");
         try {
             if (service == null) initialize();
             samples = Math.max(1, Math.min(80, samples));
@@ -55,48 +68,98 @@ final class ExperimentalStateController {
         return out.toString();
     }
 
+    /**
+     * Pattern ids:
+     * 0..3  -> effect 38 static patterns
+     * 10..13 -> effect 64 static patterns with caller-selected color
+     * 20 -> moving one-hot, effect 38
+     * 30 -> moving one-hot, effect 64 + selected color
+     */
     synchronized String setBrightnessPattern(int pattern, int argb) {
         try {
             if (service == null) initialize();
+            stopAnimationLocked();
             ensureSession();
 
-            ArrayList<Integer> values = new ArrayList<>();
-            final int max = 60;
-            for (int i = 0; i < 16; i++) {
-                int v;
-                switch (pattern) {
-                    case 0: v = (i == 0) ? max : 0; break;                 // one hot
-                    case 1: v = (i % 2 == 0) ? max : 0; break;            // alternating
-                    case 2: v = Math.round(i * (max / 15.0f)); break;     // ramp
-                    case 3: v = max; break;                               // all
-                    default: return "BRIGHTNESS ARRAY ERROR: unknown pattern " + pattern;
-                }
-                values.add(v);
-            }
+            if (pattern == 20) return startSweepLocked(MUSIC_EFFECT, argb);
+            if (pattern == 30) return startSweepLocked(INCALL_MUSIC_PREVIEW_EFFECT, argb);
 
-            Class<?> builderClass = Class.forName("android.hardware.lights.LightState$Builder");
-            Object builder = builderClass.getDeclaredConstructor().newInstance();
-            invoke(findMethod(builderClass, "setEffectId", 1), builder, MUSIC_EFFECT);
-            invoke(findMethod(builderClass, "setColor", 1), builder, argb);
-            invoke(findMethod(builderClass, "setBrightnessArray", 1), builder, values);
-            callOptional(builderClass, builder, "setBrightness", 255);
-            callOptional(builderClass, builder, "setPercent", 100);
-            Object state = invoke(findMethod(builderClass, "build", 0), builder);
+            int effect = pattern >= 10 ? INCALL_MUSIC_PREVIEW_EFFECT : MUSIC_EFFECT;
+            int basePattern = pattern >= 10 ? pattern - 10 : pattern;
+            ArrayList<Integer> values = buildPattern(basePattern);
+            if (values == null) return "20-PHASE ERROR: unknown pattern " + pattern;
 
-            Object states = Array.newInstance(lightStateClass, 1);
-            Array.set(states, 0, state);
-            invoke(setLightStates, service, token, new int[]{ringLightId}, states);
-
-            String readback = describeState(invoke(getLightState, service, ringLightId));
-            return "BRIGHTNESS ARRAY SENT: effect=38 pattern=" + pattern + " values=" + values
-                    + "\nReadback: " + readback;
+            sendState(effect, argb, values);
+            return "20-PHASE SENT: effect=" + effect
+                    + " count=" + values.size()
+                    + " color=" + String.format("#%08X", argb)
+                    + " values=" + values
+                    + "\nNote: stock AudioVisualizer uses exactly 20 Integer values and no setBrightness/setPercent.";
         } catch (Throwable t) {
-            return "BRIGHTNESS ARRAY ERROR: " + rootMessage(t);
+            return "20-PHASE ERROR: " + rootMessage(t);
         }
+    }
+
+    private ArrayList<Integer> buildPattern(int pattern) {
+        ArrayList<Integer> values = new ArrayList<>(PHASE_COUNT);
+        for (int i = 0; i < PHASE_COUNT; i++) {
+            int v;
+            switch (pattern) {
+                case 0: v = (i == 0) ? PHASE_LEVEL : 0; break;
+                case 1: v = (i % 2 == 0) ? PHASE_LEVEL : 0; break;
+                case 2: v = Math.round(i * (PHASE_LEVEL / (float) (PHASE_COUNT - 1))); break;
+                case 3: v = PHASE_LEVEL; break;
+                default: return null;
+            }
+            values.add(v);
+        }
+        return values;
+    }
+
+    private String startSweepLocked(int effect, int argb) {
+        stopAnimation = false;
+        animationThread = new Thread(() -> {
+            int index = 0;
+            try {
+                while (!stopAnimation) {
+                    ArrayList<Integer> values = new ArrayList<>(PHASE_COUNT);
+                    for (int i = 0; i < PHASE_COUNT; i++) values.add(i == index ? PHASE_LEVEL : 0);
+                    synchronized (ExperimentalStateController.this) {
+                        if (stopAnimation) break;
+                        sendState(effect, argb, values);
+                    }
+                    index = (index + 1) % PHASE_COUNT;
+                    Thread.sleep(120);
+                }
+            } catch (Throwable ignored) {
+            }
+        }, "flyme-20-phase-sweep");
+        animationThread.setDaemon(true);
+        animationThread.start();
+        return "20-PHASE SWEEP STARTED: effect=" + effect
+                + " count=20 one-hot level=" + PHASE_LEVEL
+                + " color=" + String.format("#%08X", argb)
+                + " step=120ms";
+    }
+
+    private void sendState(int effect, int argb, ArrayList<Integer> values) throws Exception {
+        Class<?> builderClass = Class.forName("android.hardware.lights.LightState$Builder");
+        Object builder = builderClass.getDeclaredConstructor().newInstance();
+        invoke(findMethod(builderClass, "setEffectId", 1), builder, effect);
+        if (effect == INCALL_MUSIC_PREVIEW_EFFECT) {
+            invoke(findMethod(builderClass, "setColor", 1), builder, argb);
+        }
+        invoke(findMethod(builderClass, "setBrightnessArray", 1), builder, values);
+        Object state = invoke(findMethod(builderClass, "build", 0), builder);
+
+        Object states = Array.newInstance(lightStateClass, 1);
+        Array.set(states, 0, state);
+        invoke(setLightStates, service, token, new int[]{ringLightId}, states);
     }
 
     synchronized String stop() {
         try {
+            stopAnimationLocked();
             if (sessionOpen && service != null) invoke(closeSession, service, token);
             sessionOpen = false;
             return "EXPERIMENTAL SESSION STOP OK";
@@ -104,6 +167,13 @@ final class ExperimentalStateController {
             sessionOpen = false;
             return "EXPERIMENTAL SESSION STOP ERROR: " + rootMessage(t);
         }
+    }
+
+    private void stopAnimationLocked() {
+        stopAnimation = true;
+        Thread t = animationThread;
+        animationThread = null;
+        if (t != null) t.interrupt();
     }
 
     private void initialize() throws Exception {
@@ -175,10 +245,6 @@ final class ExperimentalStateController {
             Object v = invoke(findMethod(state.getClass(), getter, 0), state);
             if (v instanceof Number) s.append(label).append('=').append(v).append(' ');
         } catch (Throwable ignored) {}
-    }
-
-    private static void callOptional(Class<?> cls, Object target, String name, Object arg) {
-        try { invoke(findMethod(cls, name, 1), target, arg); } catch (Throwable ignored) {}
     }
 
     private static Method findMethod(Class<?> cls, String name, int count) throws NoSuchMethodException {
