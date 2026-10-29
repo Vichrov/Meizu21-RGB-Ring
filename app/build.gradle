@@ -10,8 +10,8 @@ android {
         applicationId 'com.vichrov.meizu21rgbring'
         minSdk 31
         targetSdk 35
-        versionCode 9
-        versionName '0.9-stock-ringtone-preview'
+        versionCode 10
+        versionName '1.0-services-jar-20-phase'
     }
 
     buildFeatures {
