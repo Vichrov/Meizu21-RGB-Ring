@@ -17,13 +17,17 @@
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity
-            android:name=".ExperimentalActivity"
+            android:name=".Color38Activity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ExperimentalActivity"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
