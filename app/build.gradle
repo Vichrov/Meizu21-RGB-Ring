@@ -10,8 +10,8 @@ android {
         applicationId 'com.vichrov.meizu21rgbring'
         minSdk 31
         targetSdk 35
-        versionCode 15
-        versionName '1.3.2-direct-hidl-getservice-fix'
+        versionCode 20
+        versionName '2.0-no-root-flyme'
     }
 
     buildFeatures {
