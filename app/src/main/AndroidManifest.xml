@@ -5,7 +5,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="Meizu 21 RGB Ring"
+        android:label="Meizu Ring"
         android:theme="@style/AppTheme">
 
         <provider
@@ -17,20 +17,16 @@
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity
-            android:name=".ExperimentalActivity"
-            android:exported="true">
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="uiMode|orientation|screenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".Color38Activity"
-            android:exported="false" />
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="false" />
+        <activity android:name=".ExperimentalActivity" android:exported="false" />
+        <activity android:name=".Color38Activity" android:exported="false" />
     </application>
 </manifest>
