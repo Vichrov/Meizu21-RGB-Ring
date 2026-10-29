@@ -6,46 +6,33 @@ import java.util.ArrayList;
 
 import dalvik.system.PathClassLoader;
 
-/**
- * Direct client for stock vendor.meizu.hardware.aw_light@1.0::IAwLight.
- *
- * The generated HIDL interface is bundled in /system/framework/services.jar on this Flyme build.
- * We load it reflectively so the app does not need private vendor stubs at compile time.
- */
+/** Direct client for stock vendor.meizu.hardware.aw_light@1.0::IAwLight. */
 final class DirectHidlController {
     private static final String SERVICES_JAR = "/system/framework/services.jar";
     private static final String IFACE = "vendor.meizu.hardware.aw_light.V1_0.IAwLight";
     private static final int PHASE_COUNT = 20;
     private static final int LEVEL = 60;
 
-    private Class<?> ifaceClass;
     private Object remote;
-    private Method init;
-    private Method start;
-    private Method stop;
-    private Method switchEffect;
-    private Method colorPhase;
-    private Method musicPhase;
-    private Method brightnessPhase;
-
+    private Method init, start, stop, switchEffect, colorPhase, musicPhase;
     private volatile boolean stopAnimation;
     private Thread animationThread;
 
     synchronized String diagnostics() {
-        StringBuilder out = new StringBuilder("Direct HIDL diagnostics\n");
+        StringBuilder out = new StringBuilder("Direct HIDL diagnostics — stock getService(true)\n");
         try {
             connect();
             out.append("services.jar = ").append(SERVICES_JAR).append('\n');
             out.append("interface = ").append(IFACE).append('\n');
             out.append("remote class = ").append(remote.getClass().getName()).append('\n');
-            out.append("aw_light_init() = ").append(invokeBool(init)).append('\n');
             try {
                 Method descriptor = findMethod(remote.getClass(), "interfaceDescriptor", 0);
                 out.append("descriptor = ").append(invoke(descriptor, remote)).append('\n');
             } catch (Throwable t) {
                 out.append("descriptor = <").append(rootMessage(t)).append(">\n");
             }
-            out.append("Methods: switchEffect(int), color_set_phase(int,int,int), music_phase(ArrayList<Integer>), start(), stop()");
+            out.append("aw_light_init() = ").append(invokeBool(init)).append('\n');
+            out.append("CONNECT OK");
         } catch (Throwable t) {
             out.append("CONNECT ERROR: ").append(rootMessage(t));
         }
@@ -56,35 +43,27 @@ final class DirectHidlController {
         try {
             connect();
             stopAnimationLocked();
-
             int r = (argb >> 16) & 0xff;
             int g = (argb >> 8) & 0xff;
             int b = argb & 0xff;
 
             switch (testId) {
                 case 1:
-                    return runStaticSequence("PURE 47 + direct RED/selected color", 47, r, g, b,
-                            null, false, true);
+                    return runStatic("PURE 47 + selected color", 47, r, g, b, null, false);
                 case 2:
-                    return runStaticSequence("MUSIC 38, color BEFORE start, one-hot phase 0", 38, r, g, b,
-                            oneHot(0), false, true);
+                    return runStatic("MUSIC 38: color + phase BEFORE start", 38, r, g, b, oneHot(0), false);
                 case 3:
-                    return runStaticSequence("MUSIC 38, start BEFORE color/phase", 38, r, g, b,
-                            oneHot(0), true, true);
+                    return runStatic("MUSIC 38: start BEFORE color + phase", 38, r, g, b, oneHot(0), true);
                 case 4:
-                    return startSweepLocked(38, r, g, b, true,
-                            "MUSIC 38 direct HIDL sweep; color forced every frame");
+                    return startSweep(38, r, g, b, "MUSIC 38 direct sweep; force color each frame");
                 case 5:
-                    return runStaticSequence("PURE 47 + music one-hot phase 0", 47, r, g, b,
-                            oneHot(0), false, true);
+                    return runStatic("PURE 47 + one-hot music phase", 47, r, g, b, oneHot(0), false);
                 case 6:
-                    return startSweepLocked(47, r, g, b, true,
-                            "PURE 47 + direct music-phase sweep");
+                    return startSweep(47, r, g, b, "PURE 47 + moving music phase");
                 case 7:
-                    return runNoSwitchSequence(r, g, b, oneHot(0));
+                    return runNoSwitch(r, g, b);
                 case 8:
-                    return runStaticSequence("MUSIC 38 + all 20 = 60", 38, r, g, b,
-                            filled(LEVEL), false, true);
+                    return runStatic("MUSIC 38 + all 20 = 60", 38, r, g, b, filled(LEVEL), false);
                 default:
                     return "DIRECT HIDL ERROR: unknown test " + testId;
             }
@@ -97,19 +76,17 @@ final class DirectHidlController {
         try {
             stopAnimationLocked();
             connect();
-            Object result = invoke(stop, remote);
-            return "DIRECT HIDL STOP: aw_light_stop() = " + result;
+            return "DIRECT HIDL STOP: aw_light_stop() = " + invokeBool(stop);
         } catch (Throwable t) {
             return "DIRECT HIDL STOP ERROR: " + rootMessage(t);
         }
     }
 
-    private String runStaticSequence(String label, int effect, int r, int g, int b,
-                                     ArrayList<Integer> phase, boolean startBeforeData,
-                                     boolean callInit) throws Exception {
+    private String runStatic(String label, int effect, int r, int g, int b,
+                             ArrayList<Integer> phase, boolean startBeforeData) throws Exception {
         StringBuilder out = new StringBuilder(label).append('\n');
         out.append("stop = ").append(invokeBool(stop)).append('\n');
-        if (callInit) out.append("init = ").append(invokeBool(init)).append('\n');
+        out.append("init = ").append(invokeBool(init)).append('\n');
         out.append("switchEffect(").append(effect).append(") = ")
                 .append(invokeBool(switchEffect, effect)).append('\n');
         if (startBeforeData) out.append("start = ").append(invokeBool(start)).append('\n');
@@ -123,7 +100,8 @@ final class DirectHidlController {
         return out.toString();
     }
 
-    private String runNoSwitchSequence(int r, int g, int b, ArrayList<Integer> phase) throws Exception {
+    private String runNoSwitch(int r, int g, int b) throws Exception {
+        ArrayList<Integer> phase = oneHot(0);
         StringBuilder out = new StringBuilder("NO switchEffect: init -> color -> musicPhase -> start\n");
         out.append("stop = ").append(invokeBool(stop)).append('\n');
         out.append("init = ").append(invokeBool(init)).append('\n');
@@ -133,8 +111,7 @@ final class DirectHidlController {
         return out.toString();
     }
 
-    private String startSweepLocked(int effect, int r, int g, int b,
-                                    boolean forceColorEveryFrame, String label) throws Exception {
+    private String startSweep(int effect, int r, int g, int b, String label) throws Exception {
         boolean st = invokeBool(stop);
         boolean in = invokeBool(init);
         boolean sw = invokeBool(switchEffect, effect);
@@ -149,7 +126,7 @@ final class DirectHidlController {
                     ArrayList<Integer> phase = oneHot(index);
                     synchronized (DirectHidlController.this) {
                         if (stopAnimation) break;
-                        if (forceColorEveryFrame) invokeBool(colorPhase, r, g, b);
+                        invokeBool(colorPhase, r, g, b);
                         invokeBool(musicPhase, phase);
                     }
                     index = (index + 1) % PHASE_COUNT;
@@ -161,18 +138,21 @@ final class DirectHidlController {
         animationThread.setDaemon(true);
         animationThread.start();
 
-        return label + "\n"
-                + "stop=" + st + " init=" + in + " switch=" + sw
-                + " color=" + co + " start=" + sa + "\n"
-                + "one-hot 20 phases, level=60, step=120 ms";
+        return label + "\nstop=" + st + " init=" + in + " switch=" + sw
+                + " color=" + co + " start=" + sa
+                + "\none-hot 20 phases, level=60, step=120 ms";
     }
 
+    /**
+     * Stock LightsService$IAwLightWrapper.connectToHal() calls IAwLight.getService(true)
+     * directly. v1.3 mistakenly tried false first; on Flyme that throws
+     * NoSuchElementException and prevented the correct true call from ever running.
+     */
     private void connect() throws Exception {
         if (remote != null) return;
 
         PathClassLoader loader = new PathClassLoader(SERVICES_JAR, ClassLoader.getSystemClassLoader());
-        ifaceClass = Class.forName(IFACE, true, loader);
-
+        Class<?> ifaceClass = Class.forName(IFACE, true, loader);
         Method getService = null;
         for (Method m : ifaceClass.getDeclaredMethods()) {
             if (!m.getName().equals("getService")) continue;
@@ -184,9 +164,10 @@ final class DirectHidlController {
         }
         if (getService == null) throw new NoSuchMethodException(IFACE + ".getService(boolean)");
         getService.setAccessible(true);
-        remote = invoke(getService, null, false);
-        if (remote == null) remote = invoke(getService, null, true);
-        if (remote == null) throw new IllegalStateException("IAwLight.getService() returned null");
+
+        // Exact stock behavior recovered from services.jar: getService(true).
+        remote = invoke(getService, null, true);
+        if (remote == null) throw new IllegalStateException("IAwLight.getService(true) returned null");
 
         Class<?> rc = remote.getClass();
         init = findMethod(rc, "aw_light_init", 0);
@@ -195,7 +176,6 @@ final class DirectHidlController {
         switchEffect = findMethod(rc, "aw_light_switchEffect", 1);
         colorPhase = findMethod(rc, "aw_color_set_phase", 3);
         musicPhase = findMethod(rc, "aw_music_phase", 1);
-        brightnessPhase = findMethod(rc, "aw_set_cl_brightness_phase", 1);
     }
 
     private static ArrayList<Integer> oneHot(int index) {
