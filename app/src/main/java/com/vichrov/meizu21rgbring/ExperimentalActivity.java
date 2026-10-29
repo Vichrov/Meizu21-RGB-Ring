@@ -16,7 +16,7 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** Compact experimental screen. v0.9 reproduces stock Settings RingtoneExt preview. */
+/** v1.0: tests reconstructed directly from stock services.jar AudioVisualizerHander/LightsService. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
@@ -28,13 +28,13 @@ public final class ExperimentalActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(9)
+            .version(10)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = IRingService.Stub.asInterface(binder);
-            append("UserService connected.\nReady.");
+            append("UserService connected.\nReady for stock 20-phase tests.");
         }
         @Override public void onServiceDisconnected(ComponentName name) {
             service = null;
@@ -74,37 +74,64 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v0.9");
+        title.setText("Meizu 21 RGB Ring — v1.0");
         title.setTextSize(25);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("Exact stock Settings music-preview path: RingtoneManager + Meizu's East ville memory URI + AudioAttributes tag light_preview_music. Shizuku is used only to read the stock Lights service.");
+        note.setText("Recovered from stock services.jar: AudioVisualizerHander sends exactly 20 Integer values to LightState.setBrightnessArray(). Effect 38 is MUSIC; effect 64 is in-call music preview and also accepts a global color. No setBrightness() or setPercent() is used for these frames.");
         note.setTextSize(14);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(6), 0, dp(18));
         root.addView(note);
 
         root.addView(button("Connect / grant Shizuku", v -> connect()));
-        root.addView(button("1. Exact STOCK MUSIC capture", v -> runAppProcessMusicCapture()));
-        root.addView(button("2. Start exact stock MUSIC preview only", v -> append(appMusicPreview.start())));
-        root.addView(button("3. Probe current stock LightState", v -> call(IRingService::stockDiagnostics)));
-        root.addView(button("Show recovered stock preview details", v -> append(appMusicPreview.diagnostics())));
-        root.addView(button("Stop stock MUSIC preview", v -> append(appMusicPreview.stop())));
 
-        TextView arrayTitle = new TextView(this);
-        arrayTitle.setText("brightnessArray (negative-control tests)");
-        arrayTitle.setTextSize(18);
-        arrayTitle.setTextColor(Color.rgb(30,30,30));
-        arrayTitle.setPadding(0, dp(22), 0, dp(8));
-        root.addView(arrayTitle);
+        TextView directTitle = new TextView(this);
+        directTitle.setText("Exact stock 20-phase path");
+        directTitle.setTextSize(19);
+        directTitle.setTextColor(Color.rgb(30,30,30));
+        directTitle.setPadding(0, dp(12), 0, dp(8));
+        root.addView(directTitle);
 
-        root.addView(button("Array: ONLY segment 0 = 60", v -> call(s -> s.testBrightnessArray(0, Color.RED))));
-        root.addView(button("Array: alternating 60 / 0", v -> call(s -> s.testBrightnessArray(1, Color.RED))));
-        root.addView(button("Array: ramp 0 → 60", v -> call(s -> s.testBrightnessArray(2, Color.RED))));
-        root.addView(button("Array: all 16 = 60", v -> call(s -> s.testBrightnessArray(3, Color.RED))));
-        root.addView(button("Stop experimental Lights session", v -> call(IRingService::stopBrightnessArrayTest)));
+        root.addView(button("1. MUSIC 38 — one hot [60,0…] (20 values)", v -> call(s -> s.testBrightnessArray(0, Color.RED))));
+        root.addView(button("2. MUSIC 38 — moving one-hot sweep", v -> call(s -> s.testBrightnessArray(20, Color.RED))));
+        root.addView(button("3. MUSIC 38 — alternating 60/0", v -> call(s -> s.testBrightnessArray(1, Color.RED))));
+        root.addView(button("4. MUSIC 38 — all 20 = 60", v -> call(s -> s.testBrightnessArray(3, Color.RED))));
+
+        TextView colorTitle = new TextView(this);
+        colorTitle.setText("Effect 64: 20-phase + selectable global color");
+        colorTitle.setTextSize(18);
+        colorTitle.setTextColor(Color.rgb(30,30,30));
+        colorTitle.setPadding(0, dp(22), 0, dp(8));
+        root.addView(colorTitle);
+
+        root.addView(button("5. Effect 64 RED — one hot", v -> call(s -> s.testBrightnessArray(10, Color.RED))));
+        root.addView(button("6. Effect 64 RED — moving one-hot", v -> call(s -> s.testBrightnessArray(30, Color.RED))));
+        root.addView(button("7. Effect 64 BLUE — moving one-hot", v -> call(s -> s.testBrightnessArray(30, Color.BLUE))));
+        root.addView(button("8. Effect 64 GREEN — alternating", v -> call(s -> s.testBrightnessArray(11, Color.GREEN))));
+
+        root.addView(button("Stop 20-phase session", v -> call(IRingService::stopBrightnessArrayTest)));
+
+        TextView previewTitle = new TextView(this);
+        previewTitle.setText("Stock preview reference");
+        previewTitle.setTextSize(18);
+        previewTitle.setTextColor(Color.rgb(30,30,30));
+        previewTitle.setPadding(0, dp(22), 0, dp(8));
+        root.addView(previewTitle);
+
+        TextView previewNote = new TextView(this);
+        previewNote.setText("services.jar revealed that light_preview_music is hard-gated to package com.android.settings. Our app can reproduce the Ringtone, but Flyme will not treat our package as the Settings preview. These buttons are kept only as reference.");
+        previewNote.setTextSize(13);
+        previewNote.setTextColor(Color.DKGRAY);
+        previewNote.setPadding(0, 0, 0, dp(8));
+        root.addView(previewNote);
+
+        root.addView(button("Play recovered stock ringtone", v -> append(appMusicPreview.start())));
+        root.addView(button("Probe current stock LightState", v -> call(IRingService::stockDiagnostics)));
+        root.addView(button("Stop ringtone", v -> append(appMusicPreview.stop())));
+
         root.addView(button("Stop everything", v -> {
             if (appMusicPreview != null) appMusicPreview.stop();
             call(IRingService::off);
@@ -120,27 +147,6 @@ public final class ExperimentalActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         return scroll;
-    }
-
-    private void runAppProcessMusicCapture() {
-        if (service == null) {
-            append("Not connected.");
-            return;
-        }
-        new Thread(() -> {
-            try {
-                String start = appMusicPreview.start();
-                append("APP UID / STOCK RINGTONE: " + start);
-                if (start.contains("ERROR")) return;
-                Thread.sleep(900);
-                append("Capturing while exact stock Ringtone preview is playing...\n" + service.stockDiagnostics());
-                Thread.sleep(250);
-                append(appMusicPreview.stop());
-            } catch (Throwable t) {
-                append("CAPTURE ERROR: " + RingController.rootMessage(t));
-                if (appMusicPreview != null) appMusicPreview.stop();
-            }
-        }, "ring-v09-stock-ringtone-capture").start();
     }
 
     private Button button(String text, android.view.View.OnClickListener listener) {
@@ -181,7 +187,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v09-call").start();
+        }, "ring-v10-call").start();
     }
 
     private void append(String text) {
