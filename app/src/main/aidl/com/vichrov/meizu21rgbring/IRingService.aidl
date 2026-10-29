@@ -24,5 +24,9 @@ interface IRingService {
     String testBrightnessArray(int pattern, int argb);
     String stopBrightnessArrayTest();
 
+    String directHidlDiagnostics();
+    String runDirectHidlTest(int testId, int argb);
+    String stopDirectHidl();
+
     String off();
 }
