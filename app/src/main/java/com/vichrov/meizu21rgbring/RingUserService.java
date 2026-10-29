@@ -7,6 +7,7 @@ public final class RingUserService extends IRingService.Stub {
     private final StockEffectsController stockController = new StockEffectsController();
     private final MusicPreviewController musicPreview = new MusicPreviewController();
     private final ExperimentalStateController experimentalController = new ExperimentalStateController();
+    private final DirectHidlController directHidlController = new DirectHidlController();
     private String initError;
 
     public RingUserService() {
@@ -25,6 +26,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setPureColor(int argb, int brightness) {
+        directHidlController.stopAll();
         musicPreview.stop();
         stockController.stop();
         experimentalController.stop();
@@ -34,6 +36,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setRainbow(int brightness) {
+        directHidlController.stopAll();
         musicPreview.stop();
         stockController.stop();
         experimentalController.stop();
@@ -43,6 +46,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String startSoftwareRainbow(int brightness) {
+        directHidlController.stopAll();
         musicPreview.stop();
         stockController.stop();
         experimentalController.stop();
@@ -58,6 +62,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setSingleLed(int index, int argb, int brightness) {
+        directHidlController.stopAll();
         musicPreview.stop();
         stockController.stop();
         experimentalController.stop();
@@ -67,6 +72,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String setAllLeds(int argb, int brightness) {
+        directHidlController.stopAll();
         musicPreview.stop();
         stockController.stop();
         experimentalController.stop();
@@ -76,6 +82,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String startThreeColorSpin(int brightness) {
+        directHidlController.stopAll();
         musicPreview.stop();
         stockController.stop();
         experimentalController.stop();
@@ -91,12 +98,13 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String awDiagnostics() {
-        return "v0.7: stock Flyme mechanisms + automatic music capture / brightnessArray tests.\n\n"
+        return "Stock Flyme mechanisms\n\n"
                 + stockController.diagnostics() + "\n\n" + musicPreview.diagnostics();
     }
 
     @Override
     public String startAwEffect(int effect, int argb, int strengthPercent, int amplitude, int progress) {
+        directHidlController.stopAll();
         awController.stop();
         experimentalController.stop();
         if (controller != null) controller.off();
@@ -126,6 +134,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String startStockEffect(int effect, int argb, int priority) {
+        directHidlController.stopAll();
         awController.stop();
         musicPreview.stop();
         experimentalController.stop();
@@ -140,6 +149,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String runAutomaticMusicCapture() {
+        directHidlController.stopAll();
         awController.stop();
         stockController.stop();
         experimentalController.stop();
@@ -153,6 +163,7 @@ public final class RingUserService extends IRingService.Stub {
 
     @Override
     public String testBrightnessArray(int pattern, int argb) {
+        directHidlController.stopAll();
         awController.stop();
         musicPreview.stop();
         stockController.stop();
@@ -167,12 +178,38 @@ public final class RingUserService extends IRingService.Stub {
     }
 
     @Override
+    public String directHidlDiagnostics() {
+        awController.stop();
+        musicPreview.stop();
+        stockController.stop();
+        experimentalController.stop();
+        if (controller != null) controller.off();
+        return directHidlController.diagnostics();
+    }
+
+    @Override
+    public String runDirectHidlTest(int testId, int argb) {
+        awController.stop();
+        musicPreview.stop();
+        stockController.stop();
+        experimentalController.stop();
+        if (controller != null) controller.off();
+        return directHidlController.runTest(testId, argb);
+    }
+
+    @Override
+    public String stopDirectHidl() {
+        return directHidlController.stopAll();
+    }
+
+    @Override
     public String off() {
+        String direct = directHidlController.stopAll();
         String aw = awController.stop();
         String stock = stockController.stop();
         String music = musicPreview.stop();
         String experimental = experimentalController.stop();
-        if (controller == null) return "INIT ERROR: " + initError + "\n" + aw + "\n" + stock + "\n" + music + "\n" + experimental;
-        return controller.off() + "\n" + aw + "\n" + stock + "\n" + music + "\n" + experimental;
+        if (controller == null) return "INIT ERROR: " + initError + "\n" + direct + "\n" + aw + "\n" + stock + "\n" + music + "\n" + experimental;
+        return controller.off() + "\n" + direct + "\n" + aw + "\n" + stock + "\n" + music + "\n" + experimental;
     }
 }
