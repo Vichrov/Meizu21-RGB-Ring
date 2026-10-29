@@ -16,7 +16,7 @@ import android.widget.TextView;
 
 import rikka.shizuku.Shizuku;
 
-/** v1.1: effect 50 IN_CALL_MUSIC spatial/color tests recovered from stock services.jar. */
+/** v1.3: direct vendor.meizu.hardware.aw_light@1.0 HIDL tests. */
 public final class ExperimentalActivity extends Activity {
     private static final int REQ = 7101;
     private IRingService service;
@@ -27,13 +27,13 @@ public final class ExperimentalActivity extends Activity {
             .daemon(false)
             .processNameSuffix("rgb_ring")
             .tag("meizu21_rgb_ring")
-            .version(11)
+            .version(13)
             .debuggable(true);
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = IRingService.Stub.asInterface(binder);
-            append("UserService connected.\nReady for effect 50 tests.");
+            append("UserService connected.\nReady for direct HIDL tests.");
         }
         @Override public void onServiceDisconnected(ComponentName name) {
             service = null;
@@ -71,59 +71,46 @@ public final class ExperimentalActivity extends Activity {
         root.setBackgroundColor(Color.rgb(250,250,250));
 
         TextView title = new TextView(this);
-        title.setText("Meizu 21 RGB Ring — v1.1");
-        title.setTextSize(25);
+        title.setText("Meizu 21 RGB Ring — v1.3 Direct HIDL");
+        title.setTextSize(24);
         title.setTextColor(Color.rgb(25,25,25));
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("New target: EFFECT_ID_IN_CALL_MUSIC = 50. Stock services.jar uses effect 50 with setColor(color) + exactly 20 brightness/phase values. Test whether it combines the spatial behavior of effect 38 with the selectable RGB behavior of effect 64.");
+        note.setText("Bypass Android LightState and call stock vendor.meizu.hardware.aw_light@1.0::IAwLight directly from the Shizuku shell process. We can control command order: switchEffect, color_set_phase(R,G,B), music_phase(20 values), start/stop.");
         note.setTextSize(14);
         note.setTextColor(Color.DKGRAY);
         note.setPadding(0, dp(6), 0, dp(18));
         root.addView(note);
 
         root.addView(button("Connect / grant Shizuku", v -> connect()));
+        root.addView(button("0. Direct HIDL diagnostics", v -> call(IRingService::directHidlDiagnostics)));
 
-        TextView effect50 = new TextView(this);
-        effect50.setText("Effect 50 — fixed positions (RED)");
-        effect50.setTextSize(19);
-        effect50.setTextColor(Color.rgb(30,30,30));
-        effect50.setPadding(0, dp(12), 0, dp(8));
-        root.addView(effect50);
+        addHeader(root, "Baseline / direct color");
+        root.addView(button("1. PURE 47 + direct RED", v -> call(s -> s.runDirectHidlTest(1, Color.RED))));
+        root.addView(button("1B. PURE 47 + direct BLUE", v -> call(s -> s.runDirectHidlTest(1, Color.BLUE))));
 
-        root.addView(button("1. RED one-hot — phase 0", v -> call(s -> s.testBrightnessArray(40, Color.RED))));
-        root.addView(button("2. RED one-hot — phase 5", v -> call(s -> s.testBrightnessArray(41, Color.RED))));
-        root.addView(button("3. RED one-hot — phase 10", v -> call(s -> s.testBrightnessArray(42, Color.RED))));
-        root.addView(button("4. RED one-hot — phase 15", v -> call(s -> s.testBrightnessArray(43, Color.RED))));
-        root.addView(button("5. RED one-hot — phase 19", v -> call(s -> s.testBrightnessArray(44, Color.RED))));
+        addHeader(root, "MUSIC 38 — direct command ordering");
+        root.addView(button("2. RED: color + one-hot BEFORE start", v -> call(s -> s.runDirectHidlTest(2, Color.RED))));
+        root.addView(button("2B. BLUE: color + one-hot BEFORE start", v -> call(s -> s.runDirectHidlTest(2, Color.BLUE))));
+        root.addView(button("3. RED: start BEFORE color + one-hot", v -> call(s -> s.runDirectHidlTest(3, Color.RED))));
+        root.addView(button("3B. BLUE: start BEFORE color + one-hot", v -> call(s -> s.runDirectHidlTest(3, Color.BLUE))));
+        root.addView(button("4. RED direct sweep; force color every frame", v -> call(s -> s.runDirectHidlTest(4, Color.RED))));
+        root.addView(button("4B. BLUE direct sweep; force color every frame", v -> call(s -> s.runDirectHidlTest(4, Color.BLUE))));
 
-        TextView moving = new TextView(this);
-        moving.setText("Effect 50 — movement / color");
-        moving.setTextSize(19);
-        moving.setTextColor(Color.rgb(30,30,30));
-        moving.setPadding(0, dp(22), 0, dp(8));
-        root.addView(moving);
+        addHeader(root, "Cross-test: PURE effect + music phase");
+        root.addView(button("5. PURE 47 RED + one-hot phase 0", v -> call(s -> s.runDirectHidlTest(5, Color.RED))));
+        root.addView(button("6. PURE 47 RED + moving music-phase", v -> call(s -> s.runDirectHidlTest(6, Color.RED))));
+        root.addView(button("6B. PURE 47 BLUE + moving music-phase", v -> call(s -> s.runDirectHidlTest(6, Color.BLUE))));
 
-        root.addView(button("6. RED moving one-hot (20 phases / 2.4 s)", v -> call(s -> s.testBrightnessArray(50, Color.RED))));
-        root.addView(button("7. BLUE moving one-hot (20 phases / 2.4 s)", v -> call(s -> s.testBrightnessArray(50, Color.BLUE))));
-        root.addView(button("8. GREEN alternating 60/0", v -> call(s -> s.testBrightnessArray(51, Color.GREEN))));
-        root.addView(button("9. RED all 20 = 60", v -> call(s -> s.testBrightnessArray(52, Color.RED))));
-
-        TextView control = new TextView(this);
-        control.setText("Control tests from v1.0");
-        control.setTextSize(18);
-        control.setTextColor(Color.rgb(30,30,30));
-        control.setPadding(0, dp(22), 0, dp(8));
-        root.addView(control);
-
-        root.addView(button("10. MUSIC 38 — moving one-hot reference", v -> call(s -> s.testBrightnessArray(20, Color.RED))));
-        root.addView(button("11. Effect 64 RED — moving one-hot reference", v -> call(s -> s.testBrightnessArray(30, Color.RED))));
-        root.addView(button("Stop phase session", v -> call(IRingService::stopBrightnessArrayTest)));
+        addHeader(root, "Raw state tests");
+        root.addView(button("7. No switchEffect: RED + one-hot + start", v -> call(s -> s.runDirectHidlTest(7, Color.RED))));
+        root.addView(button("8. MUSIC 38 RED + all 20 = 60", v -> call(s -> s.runDirectHidlTest(8, Color.RED))));
+        root.addView(button("Stop direct HIDL", v -> call(IRingService::stopDirectHidl)));
         root.addView(button("Stop everything", v -> call(IRingService::off)));
 
         TextView guide = new TextView(this);
-        guide.setText("What to report: for 1–5, whether the lit/highlighted area changes position between phase numbers; for 6–7, whether one area travels around the ring and whether RED vs BLUE is respected; for 8, whether alternate phases create a spatial pattern or only global brightness; for 9, whether the whole ring becomes steady red or another built-in animation appears.");
+        guide.setText("First run 0. If it reports a CONNECT ERROR, send the full log. If diagnostics succeeds, test 1/1B first: RED and BLUE must change the whole ring if direct color_set_phase works. Then test 2/2B, 3/3B and 4/4B. For each, report whether the selected color is respected, whether a highlighted sector exists/moves, and whether the stock rainbow/music background remains.");
         guide.setTextSize(13);
         guide.setTextColor(Color.DKGRAY);
         guide.setPadding(0, dp(18), 0, dp(8));
@@ -139,6 +126,15 @@ public final class ExperimentalActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         return scroll;
+    }
+
+    private void addHeader(LinearLayout root, String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(18);
+        t.setTextColor(Color.rgb(30,30,30));
+        t.setPadding(0, dp(22), 0, dp(8));
+        root.addView(t);
     }
 
     private Button button(String text, android.view.View.OnClickListener listener) {
@@ -176,7 +172,7 @@ public final class ExperimentalActivity extends Activity {
         new Thread(() -> {
             try { append(c.run(service)); }
             catch (Throwable t) { append("ERROR: " + RingController.rootMessage(t)); }
-        }, "ring-v11-call").start();
+        }, "ring-v13-call").start();
     }
 
     private void append(String text) {
