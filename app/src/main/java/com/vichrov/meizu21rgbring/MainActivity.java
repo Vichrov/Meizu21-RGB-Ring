@@ -144,7 +144,7 @@ public final class MainActivity extends Activity {
             return insets;
         });
         setContentView(root);
-        root.requestApplyWindowInsets();
+        root.requestApplyInsets();
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
